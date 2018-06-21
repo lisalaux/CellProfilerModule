@@ -17,6 +17,7 @@ from cellprofiler.preferences import get_plugin_directory
 
 # python modules and their corresponding cellprofiler.module classes
 pymodule_to_cpmodule = {'align': 'Align',
+                        'bayesian_module': 'BayesianModule',
                         'calculatemath': 'CalculateMath',
                         'calculatestatistics': 'CalculateStatistics',
                         'classifyobjects': 'ClassifyObjects',
@@ -115,6 +116,7 @@ pymodule_to_cpmodule = {'align': 'Align',
 
 # the builtin CP modules that will be loaded from the cellprofiler.modules directory
 builtin_modules = ['align',
+                   'bayesian_module',
                    'calculatemath',
                    'calculatestatistics',
                    'classifyobjects',
