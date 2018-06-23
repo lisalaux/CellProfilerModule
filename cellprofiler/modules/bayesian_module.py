@@ -90,32 +90,48 @@ BlaBlaBla
         self.param_count = cellprofiler.setting.HiddenCount(self.parameters)
         self.add_param_button = cellprofiler.setting.DoSomething("", "Add parameter", self.add_parameter)
 
+        # parameters is a list of SettingsGroup objects
+        # each SettingsGroup holds settings Objects; these objects have names
+
     def add_parameter(self, can_remove=True):
         '''Add parameter to the collection
         '''
-        counter = 1
+
         group = cellprofiler.setting.SettingsGroup()
+
         if can_remove:
             group.append("divider", cellprofiler.setting.Divider(line=False))
+
+        group.append("module_names", cellprofiler.setting.Choice(
+            "Select module",
+            choices=[""],
+            choices_fn=self.get_module_list,
+            doc="""\
+BlaBlaBla
+"""
+        ))
+
         group.append("parameter_names", cellprofiler.setting.Choice(
-            "Select parameter "+str(counter),
-            choices=["None"],
+            "Select parameter",
+            choices=[""],
             choices_fn=self.get_settings_from_modules,
             doc="""\
 BlaBlaBla
 """
         ))
+
         if can_remove:
             group.append("remover",
                          cellprofiler.setting.RemoveSettingButton("", "Remove parameters", self.parameters, group))
         self.parameters.append(group)
-        counter += 1
 
         # needs to update settings after button click! function call too slow?
         # need counter for max count of 8
 
     def settings(self):
-        result = [self.param_count, self.number_of_parameters]
+        result = [self.number_of_parameters]
+        result += [self.param_count]
+        result += [mod.module_names for mod in self.parameters]
         result += [param.parameter_names for param in self.parameters]
         return result
 
@@ -139,18 +155,39 @@ BlaBlaBla
         # pdb.set_trace()
         measurements = workspace.measurements
 
+    def get_module_list(self, pipeline):
+        modules = pipeline.modules()
+        module_list = []
+        for module in modules:
+            module_list.append(str(module.module_name))
+        return module_list
+
     def get_settings_from_modules(self, pipeline):
+
         setting_list = []
         modules = pipeline.modules()
 
-        print(modules)
-        print("*"*20)
+        mod_name_list = []
+        for parameter in self.parameters:
+            mod_name_list += [parameter.module_names]
+
+        names = []
+
+        for m in mod_name_list:
+            names += [m.get_value()]
+
+        # for n in names:
+        #     print(n)
+
         for module in modules:
-            if module.module_name == "IdentifyPrimaryObjects" or "FillObjects":
-                for setting in module.settings():
-                    if any(c.isdigit() for c in str(setting.get_value())):
+            if module.module_name in names:
+                for setting in module.visible_settings():
+                    #if any(c.isdigit() for c in str(setting.get_value())):
                         setting_list.append("{}: {}".format(setting.get_text(), setting.get_value()))
-        print("called")
+
+
+
+        #print("called")
         return setting_list
 
 

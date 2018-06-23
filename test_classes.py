@@ -26,7 +26,7 @@ if __name__ == "__main__":
                 if setting.get_text() == "Threshold correction factor":
                     print(setting.get_value())
                     setting.set_value("1.5")
-                    pipeline.edit_module(module.get_module_num(), is_image_set_modification=True)
+                    pipeline.edit_module(module.get_module_num(), is_image_set_modification=False) #be careful with flag
                     print(setting.get_value())
 
     # pipeline.run_group_with_yield() # useful? may achieve that pipeline runs only until this point
