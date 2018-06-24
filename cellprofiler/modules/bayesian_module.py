@@ -74,6 +74,28 @@ class BayesianOptimisation(cellprofiler.module.Module):
             "BlaBlaBla"]
 
         self.set_notes([" ".join(module_explanation)])
+
+        self.accuracy_threshold = cellprofiler.setting.Integer(
+            text="Accuracy threshold",
+            value=90,
+            minval=0,
+            maxval=100,
+            doc="""\
+BlaBlaBla
+"""
+        )
+
+        self.module_results = cellprofiler.setting.Choice(
+            "Display resuts from",
+            choices=[""],
+            choices_fn=self.get_identifying_module_list,
+            doc="""\
+        BlaBlaBla
+        """
+        )
+
+        self.divider = cellprofiler.setting.Divider()
+
         self.number_of_parameters = cellprofiler.setting.Integer(
             text="Number of parameters",
             value=5,
@@ -84,11 +106,11 @@ BlaBlaBla
 """
         )
 
-        self.divider = cellprofiler.setting.Divider()
         self.parameters = []
         self.add_parameter(can_remove=False)
-        self.param_count = cellprofiler.setting.HiddenCount(self.parameters)
+        self.param_count = cellprofiler.setting.HiddenCount(self.parameters) # may not work because holds both settings and modules
         self.add_param_button = cellprofiler.setting.DoSomething("", "Add parameter", self.add_parameter)
+        self.refresh_button = cellprofiler.setting.DoSomething("", "Refresh", self.refreshGUI)
 
         # parameters is a list of SettingsGroup objects
         # each SettingsGroup holds settings Objects; these objects have names
@@ -129,7 +151,9 @@ BlaBlaBla
         # need counter for max count of 8
 
     def settings(self):
-        result = [self.number_of_parameters]
+        result = [self.accuracy_threshold]
+        result += [self.module_results]
+        result += [self.number_of_parameters]
         result += [self.param_count]
         result += [mod.module_names for mod in self.parameters]
         result += [param.parameter_names for param in self.parameters]
@@ -137,10 +161,14 @@ BlaBlaBla
 
     def visible_settings(self):
         result = []
+        result += [self.accuracy_threshold]
+        result += [self.module_results]
+        result += [self.divider]
         result += [self.number_of_parameters]
         for param in self.parameters:
             result += param.visible_settings()
-        result += [self.add_param_button, self.divider]
+        result += [self.add_param_button]
+        result += [self.refresh_button]
         return result
 
 
@@ -162,11 +190,17 @@ BlaBlaBla
             module_list.append(str(module.module_name))
         return module_list
 
-    def get_settings_from_modules(self, pipeline):
+    def get_identifying_module_list(self, pipeline):
+        all_modules = pipeline.modules()
+        identifying_module_list = []
+        for m in all_modules:
+            if "Identify" in str(m.module_name):
+                identifying_module_list.append(str(m.module_name))
+        return identifying_module_list
 
+    def get_settings_from_modules(self, pipeline):
         setting_list = []
         modules = pipeline.modules()
-
         mod_name_list = []
         for parameter in self.parameters:
             mod_name_list += [parameter.module_names]
@@ -186,9 +220,11 @@ BlaBlaBla
                         setting_list.append("{}: {}".format(setting.get_text(), setting.get_value()))
 
 
-
         #print("called")
         return setting_list
+
+    def refreshGUI(self):
+        print("GUI refreshed")
 
 
 if __name__ == "__main__":
