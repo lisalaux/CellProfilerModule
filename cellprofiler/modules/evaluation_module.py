@@ -2,6 +2,7 @@
 
 """
 From OverlayOutlines
+Should be used for manual/partly automated evaluation!
 ===============
 """
 
