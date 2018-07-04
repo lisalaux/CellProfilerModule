@@ -89,8 +89,8 @@ class AutomatedEvaluation(cellprofiler.module.Module):
             "range",
             cellprofiler.setting.FloatRange(
                 'Set tolerance range',
-                (0.00, 100.00),
-                minval=0.00,
+                (00.00, 100.00),
+                minval=00.00,
                 maxval=100.00,
                 doc="""\
 Blabla"""
@@ -113,14 +113,6 @@ Blabla"""
 
     def settings(self):
         super(AutomatedEvaluation, self).settings()
-        # settings = super(AutomatedEvaluation, self).settings()
-        #
-        # #settings += [self.measurement_count]
-        #
-        # for x in self.measurements:
-        #     settings += x.pipeline_settings()
-        #     settings += [x.range]
-        # return settings
 
         result = [self.input_object_name]
         for measurement in self.measurements:
@@ -131,12 +123,9 @@ Blabla"""
         super(AutomatedEvaluation, self).visible_settings()
 
         result = [self.input_object_name]
-
         for measure in self.measurements:
             result += measure.visible_settings()
-
         result += [self.add_measurement_button]
-
         return result
 
 
@@ -144,23 +133,52 @@ Blabla"""
     # CellProfiler calls "run" on each image set in your pipeline.
     #
     def run(self, workspace):
-        #
-        # Get the measurements object - we put the measurements we
-        # make in here
-        #
-        # pdb.set_trace()
-        measurements = workspace.measurements
-        print(measurements)
-        for measure in measurements:
-            print(measure)
+
+        # Get the measurements object for the current run
+        workspace_measurements = workspace.measurements
+
+        pass_thresholds = True
+
+        # take the selected object's measurements one by one and compare it to the thresholds
+        for m in self.measurements:
+
+            if not pass_thresholds: # more efficient; breaks when there is one false measurement
+                break
+
+            measurement_values = workspace_measurements.get_current_measurement(self.input_object_name.value_text,
+                                                                                m.measurement.value_text)
+            # this gives back an array with the measurements per object in the image set; this means that
+            # if there are 3 objects, array holds 3 measurements, if there's only 1, array holds 1
+            print(measurement_values)
+            print("*************")
+
+            """loop through all entries of the array to determine whether they pass the quality threshold or not
+            """ # !this is a very strict way, would work for nuclei but also adhesions?
+            for v in measurement_values:
+                print("Measurement name: {}".format(m.measurement.get_value()))
+                print("Measurement value: {}".format(v))
+                print("Range: {} to {}".format(m.range.min, m.range.max))
+                if v >= m.range.min and v <= m.range.max:
+                    print("passed")
+                else:
+                    print("not passed")
+                    pass_thresholds = False
+                    break
+                print("***")
+
+        print(pass_thresholds)
+
+        """Add measurement (boolean value) to workspace measurements to make it available to Bayesian Module
+        """
+        workspace.add_measurement("Image", "passed", pass_thresholds)
 
 
+        # test only
+        workspace_measurements2 = workspace.measurements
 
-if __name__ == "__main__":
-    pdb.set_trace()
-    pipeline = cellprofiler.pipeline.Pipeline()
-    pipeline.load("/Users/LisaLaux/Documents/Master_UofG/Master_Project/CellProfiler/ExampleHuman/ExampleHuman.cppipe")
-    print("="*5)
-    print(pipeline.modules())
-    ae = AutomatedEvaluation()
+        measurement_values2 = workspace_measurements2.get_current_measurement("Image", "passed")
+        print("++++++++")
+        print(measurement_values2)
+
+
 
