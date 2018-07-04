@@ -40,12 +40,31 @@ NUM_OUTLINE_SETTINGS_V4 = 2
 NUM_OUTLINE_SETTINGS = 2
 
 
-class EvaluationModule(cellprofiler.module.Module):
-    module_name = 'EvaluationModule'
+class ManualEvaluation(cellprofiler.module.Module):
+    module_name = 'ManualEvaluation'
     variable_revision_number = 1
-    category = "Image Processing"
+    category = "Advanced"
 
     def create_settings(self):
+
+        module_explanation = [
+            "Module used to manually evaluate quality of identifying objects (eg cytoplasm, adhesions). "
+            "Needs to be placed after IdentifyObjects modules"]
+
+        self.set_notes([" ".join(module_explanation)])
+
+        self.accuracy_threshold = cellprofiler.setting.Integer(
+            text="Quality threshold",
+            value=90,
+            minval=0,
+            maxval=100,
+            doc="""\
+        BlaBlaBla
+        """
+        )
+
+        self.divider = cellprofiler.setting.Divider()
+
         self.image_name = cellprofiler.setting.ImageNameSubscriber(
             "Select image on which to display outlines",
             cellprofiler.setting.NONE,
@@ -126,14 +145,14 @@ image can be selected in later modules (for instance, **SaveImages**).
         self.outlines.append(group)
 
     def settings(self):
-        result = [self.image_name, self.output_image_name,
+        result = [self.accuracy_threshold, self.image_name, self.output_image_name,
                   self.line_mode]
         for outline in self.outlines:
             result += [outline.color, outline.objects_name]
         return result
 
     def visible_settings(self):
-        result = [self.image_name]
+        result = [self.accuracy_threshold, self.divider, self.image_name]
         result += [self.output_image_name, self.line_mode, self.spacer]
         for outline in self.outlines:
             result += [outline.objects_name]

@@ -23,11 +23,8 @@ import cellprofiler.setting
 import cellprofiler.pipeline
 import cellprofiler.workspace
 
-
-
-
 __doc__ = """\
-MeasurementTemplate
+AutomatedEvaluation Module
 ===================
 
 ============ ============ ===============
@@ -39,26 +36,6 @@ YES          NO           YES
 
 """
 
-#
-# Constants
-#
-# It's good programming practice to replace things like strings with
-# constants if they will appear more than once in your program. That way,
-# if someone wants to change the text, that text will change everywhere.
-# Also, you can't misspell it by accident.
-#
-'''This is the measurement template category'''
-C_MEASUREMENT_TEMPLATE = "MT"
-
-
-#
-# The module class
-#
-# Your module should "inherit" from cellprofiler.module.Module.
-# This means that your module will use the methods from Module unless
-# you re-implement them. You can let Module do most of the work and
-# implement only what you need.
-#
 
 import pdb
 import pdbi
@@ -73,8 +50,8 @@ class AutomatedEvaluation(cellprofiler.module.Module):
         super(AutomatedEvaluation, self).create_settings()
 
         module_explanation = [
-            "Module used to evaluate quality of identifying nuclei. Needs IdentifyPrimaryObjects and "
-            "MeasureObjectsSizeShape modules"]
+            "Module used to automatically evaluate quality of identifying objects (eg nuclei, adhesions). "
+            "Needs to be placed after IdentifyObjects and Measurement modules"]
 
         self.set_notes([" ".join(module_explanation)])
 
@@ -88,7 +65,8 @@ class AutomatedEvaluation(cellprofiler.module.Module):
 
         self.add_measurement(can_delete=False)
 
-        self.add_measurement_button = cellprofiler.setting.DoSomething("", "Add another measurement", self.add_measurement)
+        self.add_measurement_button = cellprofiler.setting.DoSomething(
+            "", "Add another measurement", self.add_measurement)
 
     def add_measurement(self, can_delete=True):
         '''Add another measurement to the filter list'''

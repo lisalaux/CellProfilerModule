@@ -25,9 +25,8 @@ import cellprofiler.workspace
 
 
 
-
 __doc__ = """\
-MeasurementTemplate
+BayesianOptmisation Module
 ===================
 
 ============ ============ ===============
@@ -38,27 +37,6 @@ YES          NO           YES
 
 
 """
-
-#
-# Constants
-#
-# It's good programming practice to replace things like strings with
-# constants if they will appear more than once in your program. That way,
-# if someone wants to change the text, that text will change everywhere.
-# Also, you can't misspell it by accident.
-#
-'''This is the measurement template category'''
-C_MEASUREMENT_TEMPLATE = "MT"
-
-
-#
-# The module class
-#
-# Your module should "inherit" from cellprofiler.module.Module.
-# This means that your module will use the methods from Module unless
-# you re-implement them. You can let Module do most of the work and
-# implement only what you need.
-#
 
 import pdb
 import pdbi
@@ -71,28 +49,17 @@ class BayesianOptimisation(cellprofiler.module.Module):
 
     def create_settings(self):
         module_explanation = [
-            "BlaBlaBla"]
+            "This module uses BayesianOptimisation on parameters (settings) chosen from modules placed before this "
+            "module in the pipeline. Step 1: Place Manual or Automated Evaluation modules before Bayesian "
+            "Optimisation. Step 2: Choose the evaluation modules this Bayesian module should consider as quality "
+            "indicators. Bayesian Optimisation will be executed if required quality thresholds are not met."]
 
         self.set_notes([" ".join(module_explanation)])
 
-        self.accuracy_threshold = cellprofiler.setting.Integer(
-            text="Accuracy threshold",
-            value=90,
-            minval=0,
-            maxval=100,
-            doc="""\
-BlaBlaBla
-"""
-        )
-
-        self.module_results = cellprofiler.setting.Choice(
-            "Display resuts from",
-            choices=[""],
-            choices_fn=self.get_identifying_module_list,
-            doc="""\
-        BlaBlaBla
-        """
-        )
+        self.modules = []
+        self.add_module(can_remove=False)
+        self.module_count = cellprofiler.setting.HiddenCount(self.modules)
+        self.add_module_button = cellprofiler.setting.DoSomething("", "Add module", self.add_module)
 
         self.divider = cellprofiler.setting.Divider()
 
@@ -114,6 +81,26 @@ BlaBlaBla
 
         # parameters is a list of SettingsGroup objects
         # each SettingsGroup holds settings Objects; these objects have names
+
+    def add_module(self, can_remove=True):
+        '''Add modules to the collection
+        '''
+
+        group = cellprofiler.setting.SettingsGroup()
+
+        group.append("evaluation_module_names", cellprofiler.setting.Choice(
+            "Select evaluation module",
+            choices=[""],
+            choices_fn=self.get_evaluation_module_list,
+            doc="""\
+       BlaBlaBla
+       """
+        ))
+
+        if can_remove:
+            group.append("remover",
+                         cellprofiler.setting.RemoveSettingButton("", "Remove module", self.modules, group))
+        self.modules.append(group)
 
     def add_parameter(self, can_remove=True):
         '''Add parameter to the collection
@@ -144,15 +131,16 @@ BlaBlaBla
 
         if can_remove:
             group.append("remover",
-                         cellprofiler.setting.RemoveSettingButton("", "Remove parameters", self.parameters, group))
+                         cellprofiler.setting.RemoveSettingButton("", "Remove parameter", self.parameters, group))
         self.parameters.append(group)
 
         # needs to update settings after button click! function call too slow?
         # need counter for max count of 8
 
     def settings(self):
-        result = [self.accuracy_threshold]
-        result += [self.module_results]
+        result = []
+        result += [mod.evaluation_module_names for mod in self.modules]
+        result += [self.module_count]
         result += [self.number_of_parameters]
         result += [self.param_count]
         result += [mod.module_names for mod in self.parameters]
@@ -161,8 +149,9 @@ BlaBlaBla
 
     def visible_settings(self):
         result = []
-        result += [self.accuracy_threshold]
-        result += [self.module_results]
+        for mod in self.modules:
+            result += mod.visible_settings()
+        result += [self.add_module_button]
         result += [self.divider]
         result += [self.number_of_parameters]
         for param in self.parameters:
@@ -190,13 +179,13 @@ BlaBlaBla
             module_list.append(str(module.module_name))
         return module_list
 
-    def get_identifying_module_list(self, pipeline):
+    def get_evaluation_module_list(self, pipeline):
         all_modules = pipeline.modules()
-        identifying_module_list = []
+        evaluation_module_list = []
         for m in all_modules:
-            if "Identify" in str(m.module_name):
-                identifying_module_list.append(str(m.module_name))
-        return identifying_module_list
+            if "Evaluation" in str(m.module_name):
+                evaluation_module_list.append("{} #{}".format(m.module_name, m.get_module_num()))
+        return evaluation_module_list
 
     def get_settings_from_modules(self, pipeline):
         setting_list = []
