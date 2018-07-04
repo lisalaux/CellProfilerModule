@@ -61,8 +61,6 @@ class AutomatedEvaluation(cellprofiler.module.Module):
 
         self.measurements = []
 
-        #self.measurement_count = cellprofiler.setting.HiddenCount(self.measurements, "Measurement count")
-
         self.add_measurement(can_delete=False)
 
         self.add_measurement_button = cellprofiler.setting.DoSomething(
@@ -91,7 +89,7 @@ class AutomatedEvaluation(cellprofiler.module.Module):
                 'Set tolerance range',
                 (00.00, 100.00),
                 minval=00.00,
-                maxval=100.00,
+                maxval=1000.00,
                 doc="""\
 Blabla"""
             )
@@ -139,7 +137,7 @@ Blabla"""
 
         pass_thresholds = True
 
-        # take the selected object's measurements one by one and compare it to the thresholds
+        # take the selected object's measurements and correspnding ranges one by one and compare it to the thresholds
         for m in self.measurements:
 
             if not pass_thresholds: # more efficient; breaks when there is one false measurement
@@ -152,8 +150,8 @@ Blabla"""
             print(measurement_values)
             print("*************")
 
-            """loop through all entries of the array to determine whether they pass the quality threshold or not
-            """ # !this is a very strict way, would work for nuclei but also adhesions?
+            # loop through all entries of the array to determine whether they pass the quality threshold or not
+            # !this is a very strict way, would work for nuclei but also adhesions?
             for v in measurement_values:
                 print("Measurement name: {}".format(m.measurement.get_value()))
                 print("Measurement value: {}".format(v))
@@ -168,15 +166,14 @@ Blabla"""
 
         print(pass_thresholds)
 
-        """Add measurement (boolean value) to workspace measurements to make it available to Bayesian Module
-        """
-        workspace.add_measurement("Image", "passed", pass_thresholds)
+        # Add measurement (boolean value) to workspace measurements to make it available to Bayesian Module
+        workspace.add_measurement("Image", "AutomatedEvaluation_passed", pass_thresholds)
 
 
         # test only
         workspace_measurements2 = workspace.measurements
 
-        measurement_values2 = workspace_measurements2.get_current_measurement("Image", "passed")
+        measurement_values2 = workspace_measurements2.get_current_measurement("Image", "AutomatedEvaluation_passed")
         print("++++++++")
         print(measurement_values2)
 

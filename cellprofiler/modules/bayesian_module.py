@@ -58,24 +58,12 @@ class BayesianOptimisation(cellprofiler.module.Module):
 
         self.modules = []
         self.add_module(can_remove=False)
-        self.module_count = cellprofiler.setting.HiddenCount(self.modules)
         self.add_module_button = cellprofiler.setting.DoSomething("", "Add module", self.add_module)
 
         self.divider = cellprofiler.setting.Divider()
 
-        self.number_of_parameters = cellprofiler.setting.Integer(
-            text="Number of parameters",
-            value=5,
-            minval=1,
-            maxval=8,
-            doc="""\
-BlaBlaBla
-"""
-        )
-
         self.parameters = []
         self.add_parameter(can_remove=False)
-        self.param_count = cellprofiler.setting.HiddenCount(self.parameters) # may not work because holds both settings and modules
         self.add_param_button = cellprofiler.setting.DoSomething("", "Add parameter", self.add_parameter)
         self.refresh_button = cellprofiler.setting.DoSomething("", "Refresh", self.refreshGUI)
 
@@ -140,9 +128,6 @@ BlaBlaBla
     def settings(self):
         result = []
         result += [mod.evaluation_module_names for mod in self.modules]
-        result += [self.module_count]
-        result += [self.number_of_parameters]
-        result += [self.param_count]
         result += [mod.module_names for mod in self.parameters]
         result += [param.parameter_names for param in self.parameters]
         return result
@@ -153,7 +138,6 @@ BlaBlaBla
             result += mod.visible_settings()
         result += [self.add_module_button]
         result += [self.divider]
-        result += [self.number_of_parameters]
         for param in self.parameters:
             result += param.visible_settings()
         result += [self.add_param_button]
@@ -165,18 +149,54 @@ BlaBlaBla
     # CellProfiler calls "run" on each image set in your pipeline.
     #
     def run(self, workspace):
-        #
-        # Get the measurements object - we put the measurements we
-        # make in here
-        #
-        # pdb.set_trace()
-        measurements = workspace.measurements
+
+        workspace_measurements = workspace.measurements
+
+        pipeline = workspace.get_pipeline()
+
+        # determine whether optimisation is needed or not
+        for m in self.modules:
+            name_list = m.evaluation_module_names.value_text.split(" ")
+            name = name_list[0]
+
+            evaluation_result = workspace_measurements.get_current_measurement("Image", str(name+"_passed"))
+            print(evaluation_result)
+            print("*************")
+
+            if evaluation_result is True:
+                print("no need for optimisation")
+            else:
+                print("need for optimisation")
+
+            print("***")
+
+        # get modules and their settings
+        number_of_params = self.parameters.__len__()
+        print("Number of params: {}".format(number_of_params))
+
+        for module in self.parameters:
+            name_list = module.module_names.value_text.split(" #")
+            number = int(name_list[1])
+            target_module = pipeline.module(number)
+
+            print(target_module.module_name)
+
+            set_list = module.parameter_names.value_text.split(": ")
+            target_setting_name = set_list[0]
+
+            for setting in target_module.settings():
+                if setting.get_text() == target_setting_name:
+                    print(setting.get_text())
+                    print(setting.get_value())
+                    # setting.set_value("1.5")
+                    # pipeline.edit_module(module.get_module_num(), is_image_set_modification=False) #be careful with flag
+                    # print(setting.get_value())
 
     def get_module_list(self, pipeline):
         modules = pipeline.modules()
         module_list = []
         for module in modules:
-            module_list.append(str(module.module_name))
+            module_list.append("{} #{}".format(module.module_name, module.get_module_num()))
         return module_list
 
     def get_evaluation_module_list(self, pipeline):
@@ -191,36 +211,19 @@ BlaBlaBla
         setting_list = []
         modules = pipeline.modules()
         mod_name_list = []
+
         for parameter in self.parameters:
-            mod_name_list += [parameter.module_names]
-
-        names = []
-
-        for m in mod_name_list:
-            names += [m.get_value()]
-
-        # for n in names:
-        #     print(n)
+            name_list = parameter.module_names.value_text.split(" ")
+            name = name_list[0]
+            mod_name_list += [name]
 
         for module in modules:
-            if module.module_name in names:
+            if module.module_name in mod_name_list:
                 for setting in module.visible_settings():
                     #if any(c.isdigit() for c in str(setting.get_value())):
                         setting_list.append("{}: {}".format(setting.get_text(), setting.get_value()))
 
-
-        #print("called")
         return setting_list
 
     def refreshGUI(self):
         print("GUI refreshed")
-
-
-if __name__ == "__main__":
-    pdb.set_trace()
-    pipeline = cellprofiler.pipeline.Pipeline()
-    pipeline.load("/Users/LisaLaux/Documents/Master_UofG/Master_Project/CellProfiler/ExampleHuman/ExampleHuman.cppipe")
-    print("="*5)
-    print(pipeline.modules())
-    bo = BayesianOptimisation()
-
