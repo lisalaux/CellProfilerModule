@@ -154,6 +154,8 @@ BlaBlaBla
 
         pipeline = workspace.get_pipeline()
 
+        optimisation_on = False
+
         # determine whether optimisation is needed or not
         for m in self.modules:
             name_list = m.evaluation_module_names.value_text.split(" ")
@@ -167,30 +169,53 @@ BlaBlaBla
                 print("no need for optimisation")
             else:
                 print("need for optimisation")
+                optimisation_on = True
+                break
 
-            print("***")
+        if optimisation_on:
+            # get modules and their settings
+            number_of_params = self.parameters.__len__()
+            print("Number of params: {}".format(number_of_params))
 
-        # get modules and their settings
-        number_of_params = self.parameters.__len__()
-        print("Number of params: {}".format(number_of_params))
+            target_setting_module_list = []
+            target_setting_names_list = []
+            target_setting_values_list = []
 
-        for module in self.parameters:
-            name_list = module.module_names.value_text.split(" #")
-            number = int(name_list[1])
-            target_module = pipeline.module(number)
+            for module in self.parameters:
+                name_list = module.module_names.value_text.split(" #")
+                number = int(name_list[1])
+                target_module = pipeline.module(number)
 
-            print(target_module.module_name)
+                print(target_module.module_name)
+                target_setting_module_list += [number]
 
-            set_list = module.parameter_names.value_text.split(": ")
-            target_setting_name = set_list[0]
+                set_list = module.parameter_names.value_text.split(": ")
+                target_setting_name = set_list[0]
 
-            for setting in target_module.settings():
-                if setting.get_text() == target_setting_name:
-                    print(setting.get_text())
-                    print(setting.get_value())
-                    # setting.set_value("1.5")
-                    # pipeline.edit_module(module.get_module_num(), is_image_set_modification=False) #be careful with flag
-                    # print(setting.get_value())
+                for setting in target_module.settings():
+                    if setting.get_text() == target_setting_name:
+                        print("Setting name: "+setting.get_text())
+                        target_setting_names_list += [setting.get_text()]
+                        print("Old setting value: "+setting.get_value())
+                        target_setting_values_list += [setting.get_value()]
+
+            # do the bayesian optimisation with a new function that takes the 3 lists and alters the values_list
+            new_target_settings = self.bayesian_optimisation(target_setting_module_list, target_setting_names_list,
+                                                             target_setting_values_list)
+
+            # modify modules with new setting values
+            for i in range(number_of_params):
+                target_module = pipeline.module(target_setting_module_list[i])
+                for setting in target_module.settings():
+                    if setting.get_text() == target_setting_names_list[i]:
+                        print("Setting name: "+setting.get_text())
+                        setting.set_value(new_target_settings[i])
+                        pipeline.edit_module(target_setting_module_list[i], is_image_set_modification=False)
+                        print("New setting value: "+setting.get_value())
+
+            # pipeline re-runs automatically from where module has been changed; modules therefore need to be in order!
+            # problem: pipeline runs only so many times as it has modules in total
+            # --> need to find a way to re-set count
 
     def get_module_list(self, pipeline):
         modules = pipeline.modules()
@@ -220,10 +245,17 @@ BlaBlaBla
         for module in modules:
             if module.module_name in mod_name_list:
                 for setting in module.visible_settings():
-                    #if any(c.isdigit() for c in str(setting.get_value())):
-                        setting_list.append("{}: {}".format(setting.get_text(), setting.get_value()))
+                    setting_list.append("{}: {}".format(setting.get_text(), setting.get_value()))
 
         return setting_list
 
     def refreshGUI(self):
         print("GUI refreshed")
+
+    def bayesian_optimisation(self, module_list, names_list, values_list):
+        # do the optimisation and return new values in values_list
+        new_values = values_list
+        new_values[0] = "Gaussian Filter"
+        new_values[1] = "Two classes"
+
+        return new_values
