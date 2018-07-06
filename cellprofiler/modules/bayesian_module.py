@@ -8,6 +8,13 @@
 
 import numpy
 import scipy.ndimage
+import GPy
+import GPyOpt
+from numpy.random import seed
+import matplotlib
+
+import pdb
+import pdbi
 
 #################################
 #
@@ -38,9 +45,6 @@ YES          NO           YES
 
 """
 
-import pdb
-import pdbi
-
 
 class BayesianOptimisation(cellprofiler.module.Module):
     module_name = "BayesianOptimisation"
@@ -56,39 +60,52 @@ class BayesianOptimisation(cellprofiler.module.Module):
 
         self.set_notes([" ".join(module_explanation)])
 
-        self.modules = []
-        self.add_module(can_remove=False)
-        self.add_module_button = cellprofiler.setting.DoSomething("", "Add module", self.add_module)
+        self.input_object_name = cellprofiler.setting.ObjectNameSubscriber(
+            "Input object name", cellprofiler.setting.NONE,
+            doc="These are the objects that the module operates on.")
 
-        self.divider = cellprofiler.setting.Divider()
+        self.measurements = []
+
+        self.add_measurement(can_delete=False)
+
+        self.add_measurement_button = cellprofiler.setting.DoSomething(
+            "", "Add another measurement", self.add_measurement)
+
+        self.spacer = cellprofiler.setting.Divider(line=True)
 
         self.parameters = []
         self.add_parameter(can_remove=False)
         self.add_param_button = cellprofiler.setting.DoSomething("", "Add parameter", self.add_parameter)
         self.refresh_button = cellprofiler.setting.DoSomething("", "Refresh", self.refreshGUI)
 
-        # parameters is a list of SettingsGroup objects
-        # each SettingsGroup holds settings Objects; these objects have names
-
-    def add_module(self, can_remove=True):
-        '''Add modules to the collection
-        '''
-
+    def add_measurement(self, can_delete=True):
+        '''Add another measurement to the filter list'''
         group = cellprofiler.setting.SettingsGroup()
 
-        group.append("evaluation_module_names", cellprofiler.setting.Choice(
-            "Select evaluation module",
-            choices=[""],
-            choices_fn=self.get_evaluation_module_list,
-            doc="""\
-       BlaBlaBla
-       """
-        ))
+        group.append(
+            "evaluation_measurement",
+            cellprofiler.setting.Measurement(
+                "Select measurements for evaluation",
+                self.input_object_name.get_value,
+                "Evaluation_Deviation",
+                doc="""\
+                See the **Measurements** modules help pages for more information on the
+                features measured."""
 
-        if can_remove:
-            group.append("remover",
-                         cellprofiler.setting.RemoveSettingButton("", "Remove module", self.modules, group))
-        self.modules.append(group)
+            )
+        )
+
+        self.measurements.append(group)
+
+        if can_delete:
+            group.append(
+                "remover",
+                cellprofiler.setting.RemoveSettingButton(
+                    "",
+                    "Remove this measurement",
+                    self.measurements, group
+                )
+            )
 
     def add_parameter(self, can_remove=True):
         '''Add parameter to the collection
@@ -127,17 +144,18 @@ BlaBlaBla
 
     def settings(self):
         result = []
-        result += [mod.evaluation_module_names for mod in self.modules]
+        result += [self.input_object_name]
+        result += [m.evaluation_measurement for m in self.measurements]
         result += [mod.module_names for mod in self.parameters]
         result += [param.parameter_names for param in self.parameters]
         return result
 
     def visible_settings(self):
         result = []
-        for mod in self.modules:
+        result += [self.input_object_name]
+        for mod in self.measurements:
             result += mod.visible_settings()
-        result += [self.add_module_button]
-        result += [self.divider]
+        result += [self.add_measurement_button, self.spacer]
         for param in self.parameters:
             result += param.visible_settings()
         result += [self.add_param_button]
@@ -156,24 +174,28 @@ BlaBlaBla
 
         optimisation_on = False
 
+        evaluation_results = []
+
+        #
         # determine whether optimisation is needed or not
-        for m in self.modules:
-            name_list = m.evaluation_module_names.value_text.split(" ")
-            name = name_list[0]
+        #
+        for m in self.measurements:
 
-            evaluation_result = workspace_measurements.get_current_measurement("Image", str(name+"_passed"))
-            print(evaluation_result)
-            print("*************")
+            evaluation_results = workspace_measurements.get_current_measurement(self.input_object_name.value,
+                                                                               m.evaluation_measurement.value_text)
 
-            if evaluation_result is True:
-                print("no need for optimisation")
-            else:
-                print("need for optimisation")
-                optimisation_on = True
-                break
+            print(evaluation_results)
+
+            evaluation_results += evaluation_results
+
+            for e in evaluation_results:
+                if float(e) > 0.0:
+                    optimisation_on = True
 
         if optimisation_on:
+            #
             # get modules and their settings
+            #
             number_of_params = self.parameters.__len__()
             print("Number of params: {}".format(number_of_params))
 
@@ -199,11 +221,15 @@ BlaBlaBla
                         print("Old setting value: "+setting.get_value())
                         target_setting_values_list += [setting.get_value()]
 
+            #
             # do the bayesian optimisation with a new function that takes the 3 lists and alters the values_list
-            new_target_settings = self.bayesian_optimisation(target_setting_module_list, target_setting_names_list,
-                                                             target_setting_values_list)
+            #
+            new_target_settings = self.bayesian_optimisation(evaluation_results, target_setting_module_list,
+                                                             target_setting_names_list, target_setting_values_list)
 
+            #
             # modify modules with new setting values
+            #
             for i in range(number_of_params):
                 target_module = pipeline.module(target_setting_module_list[i])
                 for setting in target_module.settings():
@@ -217,6 +243,12 @@ BlaBlaBla
             # problem: pipeline runs only so many times as it has modules in total
             # --> need to find a way to re-set count
 
+        else:
+            print("no optimisation")
+
+    #
+    # Return a list of all pipeline modules
+    #
     def get_module_list(self, pipeline):
         modules = pipeline.modules()
         module_list = []
@@ -224,14 +256,9 @@ BlaBlaBla
             module_list.append("{} #{}".format(module.module_name, module.get_module_num()))
         return module_list
 
-    def get_evaluation_module_list(self, pipeline):
-        all_modules = pipeline.modules()
-        evaluation_module_list = []
-        for m in all_modules:
-            if "Evaluation" in str(m.module_name):
-                evaluation_module_list.append("{} #{}".format(m.module_name, m.get_module_num()))
-        return evaluation_module_list
-
+    #
+    # Return a list of settings from the chosen modules
+    #
     def get_settings_from_modules(self, pipeline):
         setting_list = []
         modules = pipeline.modules()
@@ -249,10 +276,16 @@ BlaBlaBla
 
         return setting_list
 
+    #
+    # Necessary to refresh the dropdown menus in GUI
+    #
     def refreshGUI(self):
         print("GUI refreshed")
 
-    def bayesian_optimisation(self, module_list, names_list, values_list):
+    #
+    # Apply bayesian optimisation to adjust settings for next pipeline run
+    #
+    def bayesian_optimisation(self, evaluation_results, module_list, names_list, values_list):
         # do the optimisation and return new values in values_list
         new_values = values_list
         new_values[0] = "Gaussian Filter"

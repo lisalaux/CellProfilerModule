@@ -6,8 +6,10 @@
 #
 #################################
 
-import numpy
+import numpy as np
 import scipy.ndimage
+import pdb
+import pdbi
 
 #################################
 #
@@ -36,9 +38,12 @@ YES          NO           YES
 
 """
 
-
-import pdb
-import pdbi
+#
+# Constants
+#
+CATEGORY = 'Evaluation'
+DEVIATION = 'Deviation'
+FEATURE_NAME = 'Evaluation_Deviation'
 
 
 class AutomatedEvaluation(cellprofiler.module.Module):
@@ -56,7 +61,7 @@ class AutomatedEvaluation(cellprofiler.module.Module):
         self.set_notes([" ".join(module_explanation)])
 
         self.input_object_name = cellprofiler.setting.ObjectNameSubscriber(
-            text="Input object name",
+            "Input object name", cellprofiler.setting.NONE,
             doc="These are the objects that the module operates on.")
 
         self.measurements = []
@@ -135,47 +140,57 @@ Blabla"""
         # Get the measurements object for the current run
         workspace_measurements = workspace.measurements
 
-        pass_thresholds = True
+        deviations = []
 
-        # take the selected object's measurements and correspnding ranges one by one and compare it to the thresholds
+        # take the selected object's measurements and corresponding ranges one by one and compare it to the thresholds
         for m in self.measurements:
 
-            if not pass_thresholds: # more efficient; breaks when there is one false measurement
-                break
+            deviation = 0
 
+            # this gives back an array with the measurements per object in the image set
             measurement_values = workspace_measurements.get_current_measurement(self.input_object_name.value_text,
                                                                                 m.measurement.value_text)
-            # this gives back an array with the measurements per object in the image set; this means that
-            # if there are 3 objects, array holds 3 measurements, if there's only 1, array holds 1
-            print(measurement_values)
-            print("*************")
 
-            # loop through all entries of the array to determine whether they pass the quality threshold or not
-            # !this is a very strict way, would work for nuclei but also adhesions?
+            print(measurement_values)
+
+            # loop through all entries of the array to determine whether they are within the quality range or not;
+            # if not, determine the deviation and save the deviation values
             for v in measurement_values:
-                print("Measurement name: {}".format(m.measurement.get_value()))
-                print("Measurement value: {}".format(v))
-                print("Range: {} to {}".format(m.range.min, m.range.max))
+
                 if v >= m.range.min and v <= m.range.max:
                     print("passed")
                 else:
                     print("not passed")
-                    pass_thresholds = False
-                    break
-                print("***")
 
-        print(pass_thresholds)
+                    if v < m.range.min:
+                        deviation += m.range.min - v
+                    else:
+                        deviation += v - m.range.max
 
-        # Add measurement (boolean value) to workspace measurements to make it available to Bayesian Module
-        workspace.add_measurement("Image", "AutomatedEvaluation_passed", pass_thresholds)
+            deviations += [deviation]
 
+        dev_array = np.array(deviations)
+        print(dev_array)
 
-        # test only
-        workspace_measurements2 = workspace.measurements
+        # Add measurement for deviations to workspace measurements to make it available to Bayesian Module
+        workspace.add_measurement(self.input_object_name.value, FEATURE_NAME, dev_array)
 
-        measurement_values2 = workspace_measurements2.get_current_measurement("Image", "AutomatedEvaluation_passed")
-        print("++++++++")
-        print(measurement_values2)
+    #
+    # make new categories available to GUI
+    #
+    def get_categories(self, pipeline, object_name):
+        if object_name == self.input_object_name:
+            return [CATEGORY]
 
+        return []
+
+    #
+    # Return the feature names if the object_name and category match to GUI
+    #
+    def get_measurements(self, pipeline, object_name, category):
+        if (object_name == self.input_object_name and category == CATEGORY):
+            return [DEVIATION]
+
+        return []
 
 
