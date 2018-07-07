@@ -15,6 +15,9 @@ import cellprofiler.image
 import cellprofiler.module
 import cellprofiler.setting
 import cellprofiler.object
+import cellprofiler.preferences
+import cellprofiler.gui
+import cellprofiler.gui.figure
 
 COLORS = {"White": (1, 1, 1),
           "Black": (0, 0, 0),
@@ -54,10 +57,10 @@ class ManualEvaluation(cellprofiler.module.Module):
         self.set_notes([" ".join(module_explanation)])
 
         self.accuracy_threshold = cellprofiler.setting.Integer(
-            text="Quality threshold",
-            value=90,
+            text="Set min quality threshold (1-10)",
+            value=8,
             minval=0,
-            maxval=100,
+            maxval=10,
             doc="""\
         BlaBlaBla
         """
@@ -96,7 +99,7 @@ Specify how to mark the boundaries around an object:
 
         self.output_image_name = cellprofiler.setting.ImageNameProvider(
             "Name the output image",
-            "OrigOverlay",
+            "EvaluationOverlay",
             doc="""\
 Enter the name of the output image with the outlines overlaid. This
 image can be selected in later modules (for instance, **SaveImages**).
@@ -163,18 +166,39 @@ image can be selected in later modules (for instance, **SaveImages**).
         return result
 
     def run(self, workspace):
+        #
+        # Get the image pixels from the image set
+        #
         base_image, dimensions = self.base_image(workspace)
 
+        #
+        # get the object outlines as pixel data
+        #
         pixel_data = self.run_color(workspace, base_image.copy())
 
+        # create new output image with the object outlines
         output_image = cellprofiler.image.Image(pixel_data, dimensions=dimensions)
 
+        # add new image with object outlines to workspace image set
         workspace.image_set.add(self.output_image_name.value, output_image)
 
         image = workspace.image_set.get_image(self.image_name.value)
 
+        # set the input image as the parent image of the output image
         output_image.parent_image = image
 
+        #
+        # Call the interaction handler with the images. The interaction
+        # handler will be invoked
+        #
+        base_pixel_data = image.pixel_data
+        out_pixel_data = output_image.pixel_data
+
+        result = workspace.interaction_request(self, base_pixel_data, out_pixel_data, workspace)
+
+        print("Result: "+str(result))
+
+        # if show window is true, display output
         if self.show_window:
             workspace.display_data.pixel_data = pixel_data
 
@@ -187,6 +211,7 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         figure.set_subplots((2, 1), dimensions=dimensions)
 
+        # original image
         figure.subplot_imshow_bw(
             0,
             0,
@@ -194,6 +219,7 @@ image can be selected in later modules (for instance, **SaveImages**).
             self.image_name.value
         )
 
+        # image with object outlines
         figure.subplot_imshow(
             1,
             0,
@@ -201,6 +227,174 @@ image can be selected in later modules (for instance, **SaveImages**).
             self.output_image_name.value,
             sharexy=figure.subplot(0, 0)
         )
+
+    def handle_interaction(self, base_pixel_data, out_pixel_data, workspace):
+        #
+        # This gets called in the UI thread and we're allowed to import
+        # UI modules such as WX or Matplotlib and pop up windows.
+        #
+        # The documentation for the Python WX widgets is hosted at:
+        #
+        # http://www.wxpython.org/docs/api/wx-module.html
+        #
+        # The documentation for Matplotlib is hosted at:
+        #
+        # http://matplotlib.org/api
+        #
+        # The Matplotlib examples are often useful because they show the
+        # "happy path" - the well-trodden way that people have done things
+        # is generally the best choice because it demonstrably works.
+        #
+        # http://matplotlib.org/examples/index.html
+        #
+        import wx
+        import matplotlib
+        import matplotlib.figure
+        import matplotlib.lines
+        import matplotlib.cm
+        import matplotlib.backends.backend_wxagg
+        #
+        # Make a wx.Dialog. "with" will garbage collect all of the
+        # UI resources when the user closes the dialog.
+        #
+        # This is how our dialog is structured:
+        #
+        # -------- WX Dialog frame ---------
+        # |                                |
+        # |  ----- WX BoxSizer ----------  |
+        # |  |                          |  |
+        # |  |  -- Matplotlib canvas -- |  |
+        # |  |  |                     | |  |
+        # |  |  |  ---- Figure ------ | |  |
+        # |  |  |  |                | | |  |
+        # |  |  |  |  --- Axes ---- | | |  |
+        # |  |  |  |  |           | | | |  |
+        # |  |  |  |  | AxesImage | | | |  |
+        # |  |  |  |  |           | | | |  |
+        # |  |  |  |  | Line2D    | | | |  |
+        # |  |  |  |  ------------- | | |  |
+        # |  |  |  |                | | |  |
+        # |  |  |  ------------------ | |  |
+        # |  |  ----------------------- |  |
+        # |  |                          |  |
+        # |  |  | WX StdDlgButtonSizer| |  |
+        # |  |  |                     | |  |
+        # |  |  |  WX Rating Buttons  | |  |
+        # |  |  | |                 | | |  |
+        # |  |  | ------------------- | |  |
+        # |  |  ----------------------- |  |
+        # |  ----------------------------  |
+        # ----------------------------------
+        #
+
+        with wx.Dialog(None, title="Rate images", size=(640, 720)) as dlg:
+            #
+            # A wx.Sizer lets you automatically adjust the size
+            # of a window's subwindows.
+            #
+            dlg.Sizer = wx.BoxSizer(wx.VERTICAL)
+            #
+            # We draw on the figure
+            #
+            figure = matplotlib.figure.Figure()
+            #
+            # Define an Axes on the figure
+            #
+            axes = figure.add_axes((.05, .05, .9, .9))
+
+
+            # image with object outlines
+            # axes.imshow(
+            #     base_pixel_data, cmap='gray'
+            # )
+            axes.imshow(
+                out_pixel_data
+            )
+
+            #
+            # The canvas renders the figure
+            #
+            canvas = matplotlib.backends.backend_wxagg.FigureCanvasWxAgg(
+                dlg, -1, figure)
+            #
+            # Put the canvas in the dialog
+            #
+            dlg.Sizer.Add(canvas, 1, wx.EXPAND)
+
+
+
+            # ###########
+            # dimensions = workspace.display_data.dimensions
+            #
+            # figure.set_subplots((2, 1), dimensions=dimensions)
+            #
+            # # original image
+            # figure.subplot_imshow_bw(
+            #     0,
+            #     0,
+            #     workspace.display_data.image_pixel_data,
+            #     self.image_name.value
+            # )
+            #
+            # # image with object outlines
+            # figure.subplot_imshow(
+            #     1,
+            #     0,
+            #     workspace.display_data.pixel_data,
+            #     self.output_image_name.value,
+            #     sharexy=figure.subplot(0, 0)
+            # )
+            #
+
+            #
+            # This is a button sizer and it handles the OK button at the bottom.
+            # WX will fill in the appropriate names for buttons in this sizer:
+            # wx.ID_OK = OK button
+            # wx.ID_CANCEL = Cancel button
+            # wx.ID_YES / wx.ID_NO
+            #
+            button_sizer = wx.StdDialogButtonSizer()
+            dlg.Sizer.Add(button_sizer, 0, wx.EXPAND)
+            one_button = wx.Button(dlg, name="1")
+            # two_button = wx.Button(dlg, name="2")
+            button_sizer.AddButton(one_button)
+            # button_sizer.AddButton(two_button)
+            button_sizer.Realize()
+
+            #
+            # "on_button" gets called when the button is pressed.
+            #
+            # ok_button.Bind directs WX to handle a button press event
+            # by calling "on_button" with the event.
+            #
+            # dlg.EndModal tells WX to close the dialog and return control
+            # to the caller.
+            #
+            def on_button(event):
+                quality = 1
+                dlg.EndModal(1)
+
+            one_button.Bind(wx.EVT_BUTTON, on_button)
+            # two_button.Bind(wx.EVT_BUTTON, on_button)
+
+
+            #
+            # Layout and show the dialog. The WX Layout() method tells
+            # WX to use the sizers to place the dialog's controls:
+            # the canvas and OK button.
+            #
+            dlg.Layout()
+            dlg.ShowModal()
+            #
+            # Return the quality measure
+            #
+            return 1
+
+
+    #
+    # use matplotlib to display results for evaluation
+    #
+
 
     def base_image(self, workspace):
 
@@ -213,6 +407,9 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         return skimage.color.gray2rgb(pixel_data), image.dimensions
 
+    #
+    # prepares colors to draw the outlines of the objects selected
+    #
     def run_color(self, workspace, pixel_data):
         for outline in self.outlines:
             objects = workspace.object_set.get_objects(outline.objects_name.value)
@@ -223,6 +420,9 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         return pixel_data
 
+    #
+    # draws the outlines of the objects selected
+    #
     def draw_outlines(self, pixel_data, objects, color):
         for labels, _ in objects.get_labels():
             resized_labels = self.resize(pixel_data, labels)

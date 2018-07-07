@@ -55,8 +55,9 @@ class BayesianOptimisation(cellprofiler.module.Module):
         module_explanation = [
             "This module uses BayesianOptimisation on parameters (settings) chosen from modules placed before this "
             "module in the pipeline. Step 1: Place Manual or Automated Evaluation modules before Bayesian "
-            "Optimisation. Step 2: Choose the evaluation modules this Bayesian module should consider as quality "
-            "indicators. Bayesian Optimisation will be executed if required quality thresholds are not met."]
+            "Optimisation. Step 2: Choose the objects which you have evaluatied in the evaluation modules. The "
+            "Bayesian module should consider these measures as quality"
+            "indicators. Bayesian Optimisation will be executed if required quality thresholds/ranges are not met."]
 
         self.set_notes([" ".join(module_explanation)])
 
@@ -89,8 +90,8 @@ class BayesianOptimisation(cellprofiler.module.Module):
                 self.input_object_name.get_value,
                 "Evaluation_Deviation",
                 doc="""\
-                See the **Measurements** modules help pages for more information on the
-                features measured."""
+See the **Measurements** modules help pages for more information on the
+features measured."""
 
             )
         )
@@ -242,6 +243,8 @@ BlaBlaBla
             # pipeline re-runs automatically from where module has been changed; modules therefore need to be in order!
             # problem: pipeline runs only so many times as it has modules in total
             # --> need to find a way to re-set count
+            start_module = pipeline.module(5)
+            workspace.set_module(start_module)
 
         else:
             print("no optimisation")

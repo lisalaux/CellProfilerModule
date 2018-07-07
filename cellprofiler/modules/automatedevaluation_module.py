@@ -55,8 +55,10 @@ class AutomatedEvaluation(cellprofiler.module.Module):
         super(AutomatedEvaluation, self).create_settings()
 
         module_explanation = [
-            "Module used to automatically evaluate quality of identifying objects (eg nuclei, adhesions). "
-            "Needs to be placed after IdentifyObjects and Measurement modules"]
+            "Module used to automatically evaluate the quality of identified objects (eg nuclei, adhesions). "
+            "Needs to be placed after IdentifyObjects and Measurement modules. Choose the measurements to be evaluated"
+            "and set a tolerance range for their values. If objects are outside this range, a deviation will be "
+            "measured and saved with the object."]
 
         self.set_notes([" ".join(module_explanation)])
 
@@ -82,8 +84,8 @@ class AutomatedEvaluation(cellprofiler.module.Module):
                 self.input_object_name.get_value,
                 "AreaShape_Area",
                 doc="""\
-        See the **Measurements** modules help pages for more information on the
-        features measured."""
+See the **Measurements** modules help pages for more information on the
+features measured."""
 
             )
         )
