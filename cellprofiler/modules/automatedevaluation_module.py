@@ -158,7 +158,6 @@ Blabla"""
             # loop through all entries of the array to determine whether they are within the quality range or not;
             # if not, determine the deviation and save the deviation values
             for v in measurement_values:
-
                 if v >= m.range.min and v <= m.range.max:
                     print("passed")
                 else:
@@ -172,7 +171,7 @@ Blabla"""
             deviations += [deviation]
 
         dev_array = np.array(deviations)
-        print(dev_array)
+        # print(dev_array)
 
         # Add measurement for deviations to workspace measurements to make it available to Bayesian Module
         workspace.add_measurement(self.input_object_name.value, FEATURE_NAME, dev_array)

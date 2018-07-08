@@ -54,10 +54,10 @@ class BayesianOptimisation(cellprofiler.module.Module):
     def create_settings(self):
         module_explanation = [
             "This module uses BayesianOptimisation on parameters (settings) chosen from modules placed before this "
-            "module in the pipeline. Step 1: Place Manual or Automated Evaluation modules before Bayesian "
-            "Optimisation. Step 2: Choose the objects which you have evaluatied in the evaluation modules. The "
-            "Bayesian module should consider these measures as quality"
-            "indicators. Bayesian Optimisation will be executed if required quality thresholds/ranges are not met."]
+            "module in the pipeline. Step 1: Choose the objects which you have evaluated in the evaluation modules. "
+            "The Bayesian module should consider these measures as quality indicators. Step 2: Choose the parameters "
+            "(settings) to be adjusted. Bayesian Optimisation will be executed if required quality thresholds/ranges "
+            "are not met."]
 
         self.set_notes([" ".join(module_explanation)])
 
@@ -175,23 +175,35 @@ BlaBlaBla
 
         optimisation_on = False
 
-        evaluation_results = []
+        manual_evaluation_result = []
+        auto_evaluation_results = []
 
         #
-        # determine whether optimisation is needed or not
+        # save the quality measurements and determine whether optimisation is needed or not
         #
         for m in self.measurements:
 
-            evaluation_results = workspace_measurements.get_current_measurement(self.input_object_name.value,
-                                                                               m.evaluation_measurement.value_text)
+            if m.evaluation_measurement.value_text == "Evaluation_ManualQuality":
+                manual_evaluation_result = workspace_measurements.get_current_measurement(
+                    self.input_object_name.value, m.evaluation_measurement.value_text)
+                for e in manual_evaluation_result:
+                    if float(e) > 0.0:
+                        optimisation_on = True
+                        print("Manual evaluation causes opt_on")
 
-            print(evaluation_results)
+            elif m.evaluation_measurement.value_text == "Evaluation_Deviation":
+                auto_evaluation_results = workspace_measurements.get_current_measurement(
+                    self.input_object_name.value, m.evaluation_measurement.value_text)
+                for e in auto_evaluation_results:
+                    if float(e) > 0.0:
+                        optimisation_on = True
+                        print("Auto evaluation causes opt_on")
 
-            evaluation_results += evaluation_results
-
-            for e in evaluation_results:
-                if float(e) > 0.0:
-                    optimisation_on = True
+        print("Bayesian Evaluation Results list: ")
+        print("Manual: ")
+        print(manual_evaluation_result)
+        print("Auto: ")
+        print(auto_evaluation_results)
 
         if optimisation_on:
             #
@@ -225,8 +237,9 @@ BlaBlaBla
             #
             # do the bayesian optimisation with a new function that takes the 3 lists and alters the values_list
             #
-            new_target_settings = self.bayesian_optimisation(evaluation_results, target_setting_module_list,
-                                                             target_setting_names_list, target_setting_values_list)
+            new_target_settings = self.bayesian_optimisation(manual_evaluation_result, auto_evaluation_results,
+                                                             target_setting_module_list, target_setting_names_list,
+                                                             target_setting_values_list)
 
             #
             # modify modules with new setting values
@@ -288,7 +301,7 @@ BlaBlaBla
     #
     # Apply bayesian optimisation to adjust settings for next pipeline run
     #
-    def bayesian_optimisation(self, evaluation_results, module_list, names_list, values_list):
+    def bayesian_optimisation(self, manual_result, auto_evaulation_results, module_list, names_list, values_list):
         # do the optimisation and return new values in values_list
         new_values = values_list
         new_values[0] = "Gaussian Filter"

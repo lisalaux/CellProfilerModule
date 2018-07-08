@@ -19,6 +19,14 @@ import cellprofiler.preferences
 import cellprofiler.gui
 import cellprofiler.gui.figure
 
+
+#
+# Constants
+#
+CATEGORY = 'Evaluation'
+QUALITY = 'ManualQuality'
+FEATURE_NAME = 'Evaluation_ManualQuality'
+
 COLORS = {"White": (1, 1, 1),
           "Black": (0, 0, 0),
           "Red": (1, 0, 0),
@@ -31,17 +39,6 @@ COLOR_ORDER = ["Red", "Green", "Blue", "Yellow", "White", "Black"]
 FROM_IMAGES = "Image"
 FROM_OBJECTS = "Objects"
 
-NUM_FIXED_SETTINGS_V1 = 5
-NUM_FIXED_SETTINGS_V2 = 6
-NUM_FIXED_SETTINGS_V3 = 6
-NUM_FIXED_SETTINGS_V4 = 6
-NUM_FIXED_SETTINGS = 6
-
-NUM_OUTLINE_SETTINGS_V2 = 2
-NUM_OUTLINE_SETTINGS_V3 = 4
-NUM_OUTLINE_SETTINGS_V4 = 2
-NUM_OUTLINE_SETTINGS = 2
-
 
 class ManualEvaluation(cellprofiler.module.Module):
     module_name = 'ManualEvaluation'
@@ -51,15 +48,16 @@ class ManualEvaluation(cellprofiler.module.Module):
     def create_settings(self):
 
         module_explanation = [
-            "Module used to manually evaluate quality of identifying objects (eg cytoplasm, adhesions). "
-            "Needs to be placed after IdentifyObjects modules"]
+            "Module for manual evaluation of the quality of the identified objects (eg cytoplasm, adhesions). "
+            "Needs to be placed after IdentifyObjects modules. Choose the main object to rate the quality for first."
+            "You can choose further supporting objects to display. Their qulaity will not be rated."]
 
         self.set_notes([" ".join(module_explanation)])
 
         self.accuracy_threshold = cellprofiler.setting.Integer(
             text="Set min quality threshold (1-10)",
             value=8,
-            minval=0,
+            minval=1,
             maxval=10,
             doc="""\
         BlaBlaBla
@@ -124,7 +122,8 @@ image can be selected in later modules (for instance, **SaveImages**).
             cellprofiler.setting.ObjectNameSubscriber(
                 "Select objects to display",
                 cellprofiler.setting.NONE,
-                doc="Choose the objects whose outlines you would like to display."
+                doc="Choose the objects whose outlines you would like to display. The first object chosen will be the "
+                    "leading object, storing the quality measurement needed for the Bayesian Optimisation."
             )
         )
 
@@ -194,18 +193,41 @@ image can be selected in later modules (for instance, **SaveImages**).
         base_pixel_data = image.pixel_data
         out_pixel_data = output_image.pixel_data
 
+        #
+        # interrupt pipeline execution and send interaction request to workspace
+        # the handle_interaction method will be called and return user input (quality measure)
+        #
         result = workspace.interaction_request(self, base_pixel_data, out_pixel_data, workspace)
 
+        deviation = []
+
         print("Result: "+str(result))
+
+        if int(result) < int(self.accuracy_threshold.value):
+            print("not passed")
+            deviation += [int(self.accuracy_threshold.value) - int(result)]
+
+        else:
+            print("passed")
+            deviation += [0]
+
+        dev_array = numpy.array(deviation)
+        # print(dev_array)
+
+        # Add measurement for deviations to workspace measurements to make it available to Bayesian Module
+        # note: first object chosen is leading object where measurements are saved
+
+        workspace.add_measurement(self.outlines[0].objects_name.value, FEATURE_NAME, dev_array)
 
         # if show window is true, display output
         if self.show_window:
             workspace.display_data.pixel_data = pixel_data
-
             workspace.display_data.image_pixel_data = base_image
-
             workspace.display_data.dimensions = dimensions
 
+    #
+    # will not need necessarily
+    #
     def display(self, workspace, figure):
         dimensions = workspace.display_data.dimensions
 
@@ -257,7 +279,7 @@ image can be selected in later modules (for instance, **SaveImages**).
         # Make a wx.Dialog. "with" will garbage collect all of the
         # UI resources when the user closes the dialog.
         #
-        # This is how our dialog is structured:
+        # This is how the dialog frame is structured:
         #
         # -------- WX Dialog frame ---------
         # |                                |
@@ -271,15 +293,14 @@ image can be selected in later modules (for instance, **SaveImages**).
         # |  |  |  |  |           | | | |  |
         # |  |  |  |  | AxesImage | | | |  |
         # |  |  |  |  |           | | | |  |
-        # |  |  |  |  | Line2D    | | | |  |
         # |  |  |  |  ------------- | | |  |
         # |  |  |  |                | | |  |
         # |  |  |  ------------------ | |  |
         # |  |  ----------------------- |  |
         # |  |                          |  |
-        # |  |  | WX StdDlgButtonSizer| |  |
+        # |  |  |-----WX BoxSizer-----| |  |
         # |  |  |                     | |  |
-        # |  |  |  WX Rating Buttons  | |  |
+        # |  | WX Rating Label + Buttons|  |
         # |  |  | |                 | | |  |
         # |  |  | ------------------- | |  |
         # |  |  ----------------------- |  |
@@ -287,7 +308,10 @@ image can be selected in later modules (for instance, **SaveImages**).
         # ----------------------------------
         #
 
-        with wx.Dialog(None, title="Rate images", size=(640, 720)) as dlg:
+        with wx.Dialog(None, title="Rate images", size=(700, 500)) as dlg:
+
+            self.quality = 0
+
             #
             # A wx.Sizer lets you automatically adjust the size
             # of a window's subwindows.
@@ -347,55 +371,82 @@ image can be selected in later modules (for instance, **SaveImages**).
             #
 
             #
-            # This is a button sizer and it handles the OK button at the bottom.
-            # WX will fill in the appropriate names for buttons in this sizer:
-            # wx.ID_OK = OK button
-            # wx.ID_CANCEL = Cancel button
-            # wx.ID_YES / wx.ID_NO
+            # add horizontal Sizer to Frame Sizer
             #
-            button_sizer = wx.StdDialogButtonSizer()
-            dlg.Sizer.Add(button_sizer, 0, wx.EXPAND)
-            one_button = wx.Button(dlg, name="1")
-            # two_button = wx.Button(dlg, name="2")
-            button_sizer.AddButton(one_button)
-            # button_sizer.AddButton(two_button)
-            button_sizer.Realize()
+            hsizer = wx.BoxSizer(wx.HORIZONTAL)
+            dlg.Sizer.Add(hsizer, 0, wx.ALIGN_CENTER)
+
+            #
+            # create info label and rating buttons
+            #
+            info_label = wx.StaticText(dlg, label="Rate the quality of the object detection: ")
+
+            button_1 = wx.Button(dlg, size=(40, -1), label="1")
+            button_2 = wx.Button(dlg, size=(40, -1), label="2")
+            button_3 = wx.Button(dlg, size=(40, -1), label="3")
+            button_4 = wx.Button(dlg, size=(40, -1), label="4")
+            button_5 = wx.Button(dlg, size=(40, -1), label="5")
+            button_6 = wx.Button(dlg, size=(40, -1), label="6")
+            button_7 = wx.Button(dlg, size=(40, -1), label="7")
+            button_8 = wx.Button(dlg, size=(40, -1), label="8")
+            button_9 = wx.Button(dlg, size=(40, -1), label="9")
+            button_10 = wx.Button(dlg, size=(40, -1), label="10")
+
+            #
+            # add elements to horizontal sizer
+            #
+            hsizer.Add(info_label, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_1, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_2, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_3, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_4, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_5, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_6, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_7, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_8, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_9, 0, wx.ALIGN_CENTER)
+            hsizer.Add(button_10, 0, wx.ALIGN_CENTER)
 
             #
             # "on_button" gets called when the button is pressed.
             #
-            # ok_button.Bind directs WX to handle a button press event
+            # button.Bind directs WX to handle a button press event
             # by calling "on_button" with the event.
             #
             # dlg.EndModal tells WX to close the dialog and return control
             # to the caller.
             #
             def on_button(event):
-                quality = 1
+                b = event.GetEventObject().GetLabel()
+                self.quality = b
                 dlg.EndModal(1)
 
-            one_button.Bind(wx.EVT_BUTTON, on_button)
-            # two_button.Bind(wx.EVT_BUTTON, on_button)
-
+            button_1.Bind(wx.EVT_BUTTON, on_button)
+            button_2.Bind(wx.EVT_BUTTON, on_button)
+            button_3.Bind(wx.EVT_BUTTON, on_button)
+            button_4.Bind(wx.EVT_BUTTON, on_button)
+            button_5.Bind(wx.EVT_BUTTON, on_button)
+            button_6.Bind(wx.EVT_BUTTON, on_button)
+            button_7.Bind(wx.EVT_BUTTON, on_button)
+            button_8.Bind(wx.EVT_BUTTON, on_button)
+            button_9.Bind(wx.EVT_BUTTON, on_button)
+            button_10.Bind(wx.EVT_BUTTON, on_button)
 
             #
-            # Layout and show the dialog. The WX Layout() method tells
-            # WX to use the sizers to place the dialog's controls:
-            # the canvas and OK button.
+            # Layout and show the dialog
             #
             dlg.Layout()
             dlg.ShowModal()
+
             #
-            # Return the quality measure
+            # Return the quality measure set by button press (or window close; default = 0)
             #
-            return 1
+            return self.quality
 
 
     #
     # use matplotlib to display results for evaluation
     #
-
-
     def base_image(self, workspace):
 
         image = workspace.image_set.get_image(self.image_name.value)
@@ -469,3 +520,18 @@ image can be selected in later modules (for instance, **SaveImages**).
 
     def volumetric(self):
         return True
+
+    def get_categories(self, pipeline, object_name):
+        if object_name == self.outlines[0].objects_name:
+            return [CATEGORY]
+
+        return []
+
+    #
+    # Return the feature names if the object_name and category match to GUI
+    #
+    def get_measurements(self, pipeline, object_name, category):
+        if (object_name == self.outlines[0].objects_name and category == CATEGORY):
+            return [QUALITY]
+
+        return []
