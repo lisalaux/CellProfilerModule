@@ -193,6 +193,7 @@ image can be selected in later modules (for instance, **SaveImages**).
         base_pixel_data = image.pixel_data
         out_pixel_data = output_image.pixel_data
 
+
         #
         # interrupt pipeline execution and send interaction request to workspace
         # the handle_interaction method will be called and return user input (quality measure)
@@ -219,62 +220,16 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         workspace.add_measurement(self.outlines[0].objects_name.value, FEATURE_NAME, dev_array)
 
-        # if show window is true, display output
-        if self.show_window:
-            workspace.display_data.pixel_data = pixel_data
-            workspace.display_data.image_pixel_data = base_image
-            workspace.display_data.dimensions = dimensions
-
-    #
-    # will not need necessarily
-    #
-    def display(self, workspace, figure):
-        dimensions = workspace.display_data.dimensions
-
-        figure.set_subplots((2, 1), dimensions=dimensions)
-
-        # original image
-        figure.subplot_imshow_bw(
-            0,
-            0,
-            workspace.display_data.image_pixel_data,
-            self.image_name.value
-        )
-
-        # image with object outlines
-        figure.subplot_imshow(
-            1,
-            0,
-            workspace.display_data.pixel_data,
-            self.output_image_name.value,
-            sharexy=figure.subplot(0, 0)
-        )
-
     def handle_interaction(self, base_pixel_data, out_pixel_data, workspace):
         #
-        # This gets called in the UI thread and we're allowed to import
-        # UI modules such as WX or Matplotlib and pop up windows.
+        # import UI modules (WX and Matplotlib) to show a pop up window
         #
-        # The documentation for the Python WX widgets is hosted at:
-        #
-        # http://www.wxpython.org/docs/api/wx-module.html
-        #
-        # The documentation for Matplotlib is hosted at:
-        #
-        # http://matplotlib.org/api
-        #
-        # The Matplotlib examples are often useful because they show the
-        # "happy path" - the well-trodden way that people have done things
-        # is generally the best choice because it demonstrably works.
-        #
-        # http://matplotlib.org/examples/index.html
-        #
+
         import wx
-        import matplotlib
-        import matplotlib.figure
-        import matplotlib.lines
-        import matplotlib.cm
+        import matplotlib.pyplot as plt
         import matplotlib.backends.backend_wxagg
+        from matplotlib.backends.backend_wxagg import NavigationToolbar2WxAgg as NavigationToolbar
+
         #
         # Make a wx.Dialog. "with" will garbage collect all of the
         # UI resources when the user closes the dialog.
@@ -282,33 +237,27 @@ image can be selected in later modules (for instance, **SaveImages**).
         # This is how the dialog frame is structured:
         #
         # -------- WX Dialog frame ---------
-        # |                                |
         # |  ----- WX BoxSizer ----------  |
-        # |  |                          |  |
         # |  |  -- Matplotlib canvas -- |  |
-        # |  |  |                     | |  |
-        # |  |  |  ---- Figure ------ | |  |
-        # |  |  |  |                | | |  |
+        # |  |  |  ----- Toolbar ---- | |  |
+        # |  |  |  ----- Figure ----- | |  |
         # |  |  |  |  --- Axes ---- | | |  |
         # |  |  |  |  |           | | | |  |
         # |  |  |  |  | AxesImage | | | |  |
         # |  |  |  |  |           | | | |  |
         # |  |  |  |  ------------- | | |  |
-        # |  |  |  |                | | |  |
         # |  |  |  ------------------ | |  |
         # |  |  ----------------------- |  |
-        # |  |                          |  |
         # |  |  |-----WX BoxSizer-----| |  |
-        # |  |  |                     | |  |
-        # |  | WX Rating Label + Buttons|  |
-        # |  |  | |                 | | |  |
+        # |  |  |  WX Rating Label    | |  |
+        # |  |  |  + Buttons          | |  |
         # |  |  | ------------------- | |  |
         # |  |  ----------------------- |  |
         # |  ----------------------------  |
         # ----------------------------------
         #
 
-        with wx.Dialog(None, title="Rate images", size=(700, 500)) as dlg:
+        with wx.Dialog(None, title="Rate object detection quality", size=(800, 600)) as dlg:
 
             self.quality = 0
 
@@ -320,61 +269,35 @@ image can be selected in later modules (for instance, **SaveImages**).
             #
             # We draw on the figure
             #
-            figure = matplotlib.figure.Figure()
+            figure = plt.figure()
             #
             # Define an Axes on the figure
             #
             axes = figure.add_axes((.05, .05, .9, .9))
-
-
-            # image with object outlines
-            # axes.imshow(
-            #     base_pixel_data, cmap='gray'
-            # )
-            axes.imshow(
-                out_pixel_data
-            )
-
             #
-            # The canvas renders the figure
+            # show the original image and overlays
             #
-            canvas = matplotlib.backends.backend_wxagg.FigureCanvasWxAgg(
-                dlg, -1, figure)
+            axes.imshow(base_pixel_data, 'gray', interpolation='none')
+            axes.imshow(out_pixel_data, 'gray', interpolation='none', alpha=0.5)
+            #
+            # canvas which renders the figure
+            #
+            canvas = matplotlib.backends.backend_wxagg.FigureCanvasWxAgg(dlg, -1, figure)
             #
             # Put the canvas in the dialog
             #
+
+            toolbar = NavigationToolbar(canvas)
+            toolbar.Realize()
+
+            dlg.Sizer.Add(toolbar, 0, wx.LEFT | wx.EXPAND)
             dlg.Sizer.Add(canvas, 1, wx.EXPAND)
-
-
-
-            # ###########
-            # dimensions = workspace.display_data.dimensions
-            #
-            # figure.set_subplots((2, 1), dimensions=dimensions)
-            #
-            # # original image
-            # figure.subplot_imshow_bw(
-            #     0,
-            #     0,
-            #     workspace.display_data.image_pixel_data,
-            #     self.image_name.value
-            # )
-            #
-            # # image with object outlines
-            # figure.subplot_imshow(
-            #     1,
-            #     0,
-            #     workspace.display_data.pixel_data,
-            #     self.output_image_name.value,
-            #     sharexy=figure.subplot(0, 0)
-            # )
-            #
 
             #
             # add horizontal Sizer to Frame Sizer
             #
             hsizer = wx.BoxSizer(wx.HORIZONTAL)
-            dlg.Sizer.Add(hsizer, 0, wx.ALIGN_CENTER)
+            dlg.Sizer.Add(hsizer, 2, wx.ALIGN_CENTER)
 
             #
             # create info label and rating buttons
