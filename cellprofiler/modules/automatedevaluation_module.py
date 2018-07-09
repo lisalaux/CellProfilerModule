@@ -6,10 +6,9 @@
 #
 #################################
 
-import numpy as np
-import scipy.ndimage
-import pdb
-import pdbi
+import numpy
+# import pdb
+# import pdbi
 
 #################################
 #
@@ -26,15 +25,21 @@ import cellprofiler.pipeline
 import cellprofiler.workspace
 
 __doc__ = """\
-AutomatedEvaluation Module
+AutomatedEvaluation
 ===================
+
+**AutomatedEvaluation** can be used to automatically evaluate the quality of identified objects
+(eg nuclei, cytoplasm, adhesions). It needs to be placed after both, IdentifyObjects and Measurement modules. 
+
+By choosing an objects and some of its measurements to be evaluated, the module will check whether these measurements
+are in a tolerance range provided in the settings. If object measurement values are outside this range, a 
+deviation per value will be measured and saved with the object measurements in an numpy array.
 
 ============ ============ ===============
 Supports 2D? Supports 3D? Respects masks?
 ============ ============ ===============
-YES          NO           YES
+YES          YES           NO
 ============ ============ ===============
-
 
 """
 
@@ -50,6 +55,10 @@ class AutomatedEvaluation(cellprofiler.module.Module):
     module_name = "AutomatedEvaluation"
     category = "Advanced"
     variable_revision_number = 1
+
+    #######################################################################
+    # Create and set CellProfiler settings for GUI and Pipeline execution #
+    #######################################################################
 
     def create_settings(self):
         super(AutomatedEvaluation, self).create_settings()
@@ -73,8 +82,11 @@ class AutomatedEvaluation(cellprofiler.module.Module):
         self.add_measurement_button = cellprofiler.setting.DoSomething(
             "", "Add another measurement", self.add_measurement)
 
+    #
+    # add measurements grouped with corresponding quality ranges
+    # add a remove-button for all measurements except a mandatory one
+    #
     def add_measurement(self, can_delete=True):
-        '''Add another measurement to the filter list'''
         group = cellprofiler.setting.SettingsGroup()
 
         group.append(
@@ -133,7 +145,9 @@ Blabla"""
         result += [self.add_measurement_button]
         return result
 
-
+    ####################################################################
+    # Run method will be exectued in a worker thread of the pipeline #
+    ####################################################################
     #
     # CellProfiler calls "run" on each image set in your pipeline.
     #
@@ -170,14 +184,27 @@ Blabla"""
 
             deviations += [deviation]
 
-        dev_array = np.array(deviations)
+        dev_array = numpy.array(deviations)
         # print(dev_array)
 
         # Add measurement for deviations to workspace measurements to make it available to Bayesian Module
         workspace.add_measurement(self.input_object_name.value, FEATURE_NAME, dev_array)
 
+    ####################################################################
+    # Tell CellProfiler about the measurements produced in this module #
+    ####################################################################
+
     #
-    # make new categories available to GUI
+    # Provide the measurements for use in the database or a spreadsheet
+    #
+    def get_measurement_columns(self, pipeline):
+
+        input_object_name = self.input_object_name.value
+
+        return [input_object_name, FEATURE_NAME, cellprofiler.measurement.COLTYPE_FLOAT]
+
+    #
+    # Return a list of the measurement categories produced by this module if the object_name matches
     #
     def get_categories(self, pipeline, object_name):
         if object_name == self.input_object_name:

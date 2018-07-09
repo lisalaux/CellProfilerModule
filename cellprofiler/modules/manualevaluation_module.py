@@ -1,9 +1,23 @@
 # coding=utf-8
 
 """
-From OverlayOutlines
-Should be used for manual/partly automated evaluation!
-===============
+ManualEvaluation
+===================
+
+**ManualEvaluation** gives the user the opportunity to manually evaluate the quality of identified objects
+(eg nuclei, cytoplasm, adhesions).
+
+It needs to be placed after IdentifyObjects modules.
+The first object chosen in this module will be treated as the main object on which the quality measurement
+will be saved. Further supporting object outlines can be chosen for display.
+Their quality will not be measured or rated.
+
+============ ============ ===============
+Supports 2D? Supports 3D? Respects masks?
+============ ============ ===============
+YES          YES           NO
+============ ============ ===============
+
 """
 
 import numpy
@@ -14,6 +28,7 @@ import skimage.util
 import cellprofiler.image
 import cellprofiler.module
 import cellprofiler.setting
+import cellprofiler.measurement
 import cellprofiler.object
 import cellprofiler.preferences
 import cellprofiler.gui
@@ -36,14 +51,15 @@ COLORS = {"White": (1, 1, 1),
 
 COLOR_ORDER = ["Red", "Green", "Blue", "Yellow", "White", "Black"]
 
-FROM_IMAGES = "Image"
-FROM_OBJECTS = "Objects"
-
 
 class ManualEvaluation(cellprofiler.module.Module):
     module_name = 'ManualEvaluation'
     variable_revision_number = 1
     category = "Advanced"
+
+    #######################################################################
+    # Create and set CellProfiler settings for GUI and Pipeline execution #
+    #######################################################################
 
     def create_settings(self):
 
@@ -112,6 +128,10 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         self.add_outline_button = cellprofiler.setting.DoSomething("", "Add another outline", self.add_outline)
 
+    #
+    # add objects to outline and color chooser
+    # add a remove-button for all outlines except a mandatory one
+    #
     def add_outline(self, can_remove=True):
         group = cellprofiler.setting.SettingsGroup()
         if can_remove:
@@ -196,9 +216,10 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         #
         # interrupt pipeline execution and send interaction request to workspace
+        # as run-method is executed in a separate thread, it needs to give control to the UI thread
         # the handle_interaction method will be called and return user input (quality measure)
         #
-        result = workspace.interaction_request(self, base_pixel_data, out_pixel_data, workspace)
+        result = workspace.interaction_request(self, base_pixel_data, out_pixel_data)
 
         deviation = []
 
@@ -220,11 +241,13 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         workspace.add_measurement(self.outlines[0].objects_name.value, FEATURE_NAME, dev_array)
 
-    def handle_interaction(self, base_pixel_data, out_pixel_data, workspace):
+    #
+    # called during run of the pipeline; control is passed to UI
+    #
+    def handle_interaction(self, base_pixel_data, out_pixel_data):
         #
-        # import UI modules (WX and Matplotlib) to show a pop up window
+        # import UI modules (WX and Matplotlib) to show a pop up window for user interaction
         #
-
         import wx
         import matplotlib.pyplot as plt
         import matplotlib.backends.backend_wxagg
@@ -250,7 +273,7 @@ image can be selected in later modules (for instance, **SaveImages**).
         # |  |  ----------------------- |  |
         # |  |  |-----WX BoxSizer-----| |  |
         # |  |  |  WX Rating Label    | |  |
-        # |  |  |  + Buttons          | |  |
+        # |  |  |     + Buttons       | |  |
         # |  |  | ------------------- | |  |
         # |  |  ----------------------- |  |
         # |  ----------------------------  |
@@ -258,7 +281,9 @@ image can be selected in later modules (for instance, **SaveImages**).
         #
 
         with wx.Dialog(None, title="Rate object detection quality", size=(800, 600)) as dlg:
-
+            #
+            # default quality value to be returned when no button was pressed is 0
+            #
             self.quality = 0
 
             #
@@ -284,21 +309,20 @@ image can be selected in later modules (for instance, **SaveImages**).
             #
             canvas = matplotlib.backends.backend_wxagg.FigureCanvasWxAgg(dlg, -1, figure)
             #
-            # Put the canvas in the dialog
+            # Create a default toolbar for the canvas image
             #
-
             toolbar = NavigationToolbar(canvas)
             toolbar.Realize()
-
+            #
+            # Put the toolbar and the canvas in the dialog
+            #
             dlg.Sizer.Add(toolbar, 0, wx.LEFT | wx.EXPAND)
             dlg.Sizer.Add(canvas, 1, wx.EXPAND)
-
             #
             # add horizontal Sizer to Frame Sizer
             #
             hsizer = wx.BoxSizer(wx.HORIZONTAL)
             dlg.Sizer.Add(hsizer, 2, wx.ALIGN_CENTER)
-
             #
             # create info label and rating buttons
             #
@@ -365,7 +389,6 @@ image can be selected in later modules (for instance, **SaveImages**).
             # Return the quality measure set by button press (or window close; default = 0)
             #
             return self.quality
-
 
     #
     # use matplotlib to display results for evaluation
@@ -444,6 +467,22 @@ image can be selected in later modules (for instance, **SaveImages**).
     def volumetric(self):
         return True
 
+    ####################################################################
+    # Tell CellProfiler about the measurements produced in this module #
+    ####################################################################
+
+    #
+    # Provide the measurements for use in the database or a spreadsheet
+    #
+    def get_measurement_columns(self, pipeline):
+
+        input_object_name = self.outlines[0].objects_name.value
+
+        return [input_object_name, FEATURE_NAME, cellprofiler.measurement.COLTYPE_FLOAT]
+
+    #
+    # Return a list of the measurement categories produced by this module if the object_name matches
+    #
     def get_categories(self, pipeline, object_name):
         if object_name == self.outlines[0].objects_name:
             return [CATEGORY]

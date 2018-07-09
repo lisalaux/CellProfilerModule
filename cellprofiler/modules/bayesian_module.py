@@ -13,8 +13,8 @@ import GPyOpt
 from numpy.random import seed
 import matplotlib
 
-import pdb
-import pdbi
+# import pdb
+# import pdbi
 
 #################################
 #
@@ -31,17 +31,22 @@ import cellprofiler.pipeline
 import cellprofiler.workspace
 
 
-
 __doc__ = """\
-BayesianOptmisation Module
+BayesianOptimisation
 ===================
+
+**BayesianOptimisation** uses Bayesian Optimisation methods on parameters (settings) chosen from modules placed before 
+this module in the pipeline. It needs either a ManualEvaluation or AutomatedEvaluation or both modules placed beforehand 
+in the pipeline. It can only evaluate and operate on the quality of one object at a time. 
+
+The Bayesian Optimisation will only be executed if required quality thresholds/ranges defined in the evaluation 
+module(s) are not met.
 
 ============ ============ ===============
 Supports 2D? Supports 3D? Respects masks?
 ============ ============ ===============
-YES          NO           YES
+YES          YES           NO
 ============ ============ ===============
-
 
 """
 
@@ -50,6 +55,10 @@ class BayesianOptimisation(cellprofiler.module.Module):
     module_name = "BayesianOptimisation"
     category = "Advanced"
     variable_revision_number = 1
+
+    #######################################################################
+    # Create and set CellProfiler settings for GUI and Pipeline execution #
+    #######################################################################
 
     def create_settings(self):
         module_explanation = [
@@ -79,8 +88,11 @@ class BayesianOptimisation(cellprofiler.module.Module):
         self.add_param_button = cellprofiler.setting.DoSomething("", "Add parameter", self.add_parameter)
         self.refresh_button = cellprofiler.setting.DoSomething("", "Refresh", self.refreshGUI)
 
+    #
+    # add the quality measurements which should be considered by B.O.
+    # add a remove-button for all measurements except a mandatory one
+    #
     def add_measurement(self, can_delete=True):
-        '''Add another measurement to the filter list'''
         group = cellprofiler.setting.SettingsGroup()
 
         group.append(
@@ -108,9 +120,11 @@ features measured."""
                 )
             )
 
+    #
+    # add parameters grouped with corresponding modules
+    # add a remove-button for all parameters except a mandatory one
+    #
     def add_parameter(self, can_remove=True):
-        '''Add parameter to the collection
-        '''
 
         group = cellprofiler.setting.SettingsGroup()
 
@@ -122,7 +136,7 @@ features measured."""
             choices=[""],
             choices_fn=self.get_module_list,
             doc="""\
-BlaBlaBla
+This is the module where Bayesian Optimisation will adjust settings
 """
         ))
 
@@ -131,7 +145,7 @@ BlaBlaBla
             choices=[""],
             choices_fn=self.get_settings_from_modules,
             doc="""\
-BlaBlaBla
+These are the settings to be adjusted by Bayesian Optimisation
 """
         ))
 
@@ -173,7 +187,7 @@ BlaBlaBla
 
         pipeline = workspace.get_pipeline()
 
-        optimisation_on = False
+        self.optimisation_on = False
 
         manual_evaluation_result = []
         auto_evaluation_results = []
@@ -196,7 +210,7 @@ BlaBlaBla
                     self.input_object_name.value, m.evaluation_measurement.value_text)
                 for e in auto_evaluation_results:
                     if float(e) > 0.0:
-                        optimisation_on = True
+                        self.optimisation_on = True
                         print("Auto evaluation causes opt_on")
 
         print("Bayesian Evaluation Results list: ")
@@ -205,7 +219,7 @@ BlaBlaBla
         print("Auto: ")
         print(auto_evaluation_results)
 
-        if optimisation_on:
+        if self.optimisation_on:
             #
             # get modules and their settings
             #
@@ -256,11 +270,49 @@ BlaBlaBla
             # pipeline re-runs automatically from where module has been changed; modules therefore need to be in order!
             # problem: pipeline runs only so many times as it has modules in total
             # --> need to find a way to re-set count
-            start_module = pipeline.module(5)
-            workspace.set_module(start_module)
+            # start_module = pipeline.module(5)
+
+            # has no effect:
+            pipeline.end_run()
+            print("END RUN CALLED")
+
+            # sth with debug-mode on if-statement
+            #workspace.set_module(start_module)
+            #workspace.set_disposition(cellprofiler.workspace.DISPOSITION_CONTINUE)
+
+            # does not work with gui
+            #pipelist = cellprofiler.gui.pipelinelistview.PipelineListView()
+            #cellprofiler.gui.pipelinelistview.PipelineListView.set_current_debug_module(pipelist, start_module)
+
+            #
+            # if user wants to show the display-window, save data needed for display in workspace.display_data
+            #
+            if self.show_window:
+                # also show quality measures before???
+                workspace.display_data.statistics = []
+                for i in range(number_of_params):
+                    workspace.display_data.statistics.append(
+                        (target_setting_names_list[i], target_setting_values_list[i], new_target_settings[i]))
+
+                workspace.display_data.col_labels = ("Setting Name", "Old Value", "New Value")
 
         else:
             print("no optimisation")
+
+    #
+    # if user wants to show the display window during pipeline execution, this method is called by UI thread
+    # display the data saved in display_data of workspace
+    # used a CP defined figure to plot/display data via matplotlib
+    #
+    def display(self, workspace, figure):
+        if self.optimisation_on:
+            figure.set_subplots((1, 1))
+            figure.subplot_table(0, 0,
+                                 workspace.display_data.statistics,
+                                 col_labels=workspace.display_data.col_labels)
+
+        # do sth when optimisation was not needed?
+
 
     #
     # Return a list of all pipeline modules
@@ -303,8 +355,12 @@ BlaBlaBla
     #
     def bayesian_optimisation(self, manual_result, auto_evaulation_results, module_list, names_list, values_list):
         # do the optimisation and return new values in values_list
-        new_values = values_list
+        print("Old value in BO def: ")
+        print(values_list[0])
+
+        new_values = list(values_list)
         new_values[0] = "Gaussian Filter"
         new_values[1] = "Two classes"
 
         return new_values
+
