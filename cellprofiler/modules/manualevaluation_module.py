@@ -76,7 +76,7 @@ class ManualEvaluation(cellprofiler.module.Module):
             minval=1,
             maxval=10,
             doc="""\
-        BlaBlaBla
+This is the quality threshold for the image evaluation.
         """
         )
 
@@ -227,7 +227,11 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         if int(result) < int(self.accuracy_threshold.value):
             print("not passed")
-            deviation += [int(self.accuracy_threshold.value) - int(result)]
+            dev = int(self.accuracy_threshold.value) - int(result)
+            p_dev = (dev * 100) / int(self.accuracy_threshold.value)
+            print("p_dev:")
+            print(p_dev)
+            deviation += [p_dev]
 
         else:
             print("passed")

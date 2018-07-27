@@ -161,7 +161,7 @@ Blabla"""
         # take the selected object's measurements and corresponding ranges one by one and compare it to the thresholds
         for m in self.measurements:
 
-            deviation = 0
+            p_dev = 0
 
             # this gives back an array with the measurements per object in the image set
             measurement_values = workspace_measurements.get_current_measurement(self.input_object_name.value_text,
@@ -178,11 +178,19 @@ Blabla"""
                     print("not passed")
 
                     if v < m.range.min:
-                        deviation += m.range.min - v
+                        deviation = m.range.min - v
+                        p_dev += (deviation*100)/m.range.min
+                        print("p_dev:")
+                        print(p_dev)
                     else:
-                        deviation += v - m.range.max
+                        deviation = v - m.range.max
+                        p_dev += (deviation * 100) / m.range.max
+                        print("p_dev:")
+                        print(p_dev)
 
-            deviations += [deviation]
+            deviations += [p_dev]
+            print("deviations:")
+            print(deviations)
 
         dev_array = numpy.array(deviations)
         # print(dev_array)
