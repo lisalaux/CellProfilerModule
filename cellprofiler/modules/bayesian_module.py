@@ -161,19 +161,20 @@ These are the settings to be adjusted by Bayesian Optimisation
     def settings(self):
         result = []
         result += [self.input_object_name]
-        result += [m.evaluation_measurement for m in self.measurements]
-        result += [mod.module_names for mod in self.parameters]
-        result += [param.parameter_names for param in self.parameters]
+        for m in self.measurements:
+            result += [m.evaluation_measurement]
+        for p in self.parameters:
+            result += [p.module_names, p.parameter_names]
         return result
 
     def visible_settings(self):
         result = []
         result += [self.input_object_name]
         for mod in self.measurements:
-            result += mod.visible_settings()
+            result += [mod.evaluation_measurement]
         result += [self.add_measurement_button, self.spacer]
         for param in self.parameters:
-            result += param.visible_settings()
+            result += [param.module_names, param.parameter_names]
         result += [self.add_param_button]
         result += [self.refresh_button]
         return result
@@ -369,8 +370,8 @@ These are the settings to be adjusted by Bayesian Optimisation
     # def reset_module_counter(self, pipelinelistview):
     #     pipelinelistview.set_current_debug_module()
 
-    def reset_debug(self, pipelinecontroller):
-        pipelinecontroller.on_debug_continue()
+    # def reset_debug(self, pipelinecontroller):
+    #     pipelinecontroller.on_debug_continue()
 
     #
     # Apply bayesian optimisation to adjust settings for next pipeline run
@@ -685,8 +686,8 @@ These are the settings to be adjusted by Bayesian Optimisation
     #
     # helper function to normalise the manual and auto evaluation results and return a normalised mean value for y
     #
-    def normalise_y(self, manual_result, auto_evaulation_results):
-        results = np.concatenate([manual_result, auto_evaulation_results])
+    def normalise_y(self, manual_result, auto_evaluation_results):
+        results = np.concatenate([manual_result, auto_evaluation_results])
         norm_results = np.linalg.norm(results)
 
         if norm_results == 0:

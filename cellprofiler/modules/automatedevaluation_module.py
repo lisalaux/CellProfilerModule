@@ -188,7 +188,7 @@ Blabla"""
                         print("p_dev:")
                         print(p_dev)
 
-            deviations += [p_dev]
+            deviations += [p_dev/len(measurement_values)]
             print("deviations:")
             print(deviations)
 
