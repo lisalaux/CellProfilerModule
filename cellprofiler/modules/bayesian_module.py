@@ -50,8 +50,25 @@ YES          YES           NO
 
 """
 
+#
+# Constants
+#
+NUM_FIXED_SETTINGS = 3
+NUM_GROUP1_SETTINGS = 1
+NUM_GROUP2_SETTINGS = 2
 
+
+#
+# Create module class which inherits from cellprofiler.module.Module class
+#
 class BayesianOptimisation(cellprofiler.module.Module):
+
+    #
+    # Declare the name for displaying the module, e.g. in menus 
+    # Declare the category under which it is stored and grouped in the menu
+    # Declare variable revision number which can be used to provide backwards compatibility  if CellProfiler will be
+    # released in a new version
+    #
     module_name = "BayesianOptimisation"
     category = "Advanced"
     variable_revision_number = 1
@@ -60,6 +77,9 @@ class BayesianOptimisation(cellprofiler.module.Module):
     # Create and set CellProfiler settings for GUI and Pipeline execution #
     #######################################################################
 
+    #
+    # Define the setting's data types and grouped elements
+    #
     def create_settings(self):
         module_explanation = [
             "This module uses BayesianOptimisation on parameters (settings) chosen from modules placed before this "
@@ -69,33 +89,92 @@ class BayesianOptimisation(cellprofiler.module.Module):
             "are not met. The chosen modules with corresponding settings need to be in order! (first module appearing"
             "in the pipeline needs to be chosen first)"]
 
+        #
+        # Notes will appear in the notes-box of the module
+        #
         self.set_notes([" ".join(module_explanation)])
 
+        #
+        # Object identified in upstream IndentifyObjects module; accessible via ObjectNameSubscriber
+        #
         self.input_object_name = cellprofiler.setting.ObjectNameSubscriber(
             "Input object name", cellprofiler.setting.NONE,
             doc="These are the objects that the module operates on.")
 
+        #
+        # The number of evaluation modules as input for BayesianModule;
+        # necessary for prepare_settings method
+        #
+        self.count1 = cellprofiler.setting.cellprofiler.setting.Integer(
+                'No. of evaluation modules',
+                1,
+                minval=1,
+                maxval=2,
+                doc="""\
+No. of evaluation modules before BayesianModule."""
+            )
+
+        #
+        # The number of parameters to be adjusted by  BayesianModule;
+        # necessary for prepare_settings method
+        #
+        self.count2 = cellprofiler.setting.cellprofiler.setting.Integer(
+            'No. of settings to be adjusted',
+            2,
+            minval=1,
+            maxval=5,
+            doc="""\
+No. of settings that should be adjusted by BayesianModule."""
+        )
+
+        #
+        # Group of measurements made for the object by a Measurements module
+        #
         self.measurements = []
 
+        #
+        # Add first measurement which cannot be deleted; there must be at least one
+        #
         self.add_measurement(can_delete=False)
 
+        #
+        # Button for adding additional measurements; calls add_measurement helper function
+        #
         self.add_measurement_button = cellprofiler.setting.DoSomething(
             "", "Add another measurement", self.add_measurement)
 
         self.spacer = cellprofiler.setting.Divider(line=True)
 
         self.parameters = []
+
+        #
+        # Add first parameter which cannot be deleted; there must be at least one
+        #
         self.add_parameter(can_remove=False)
+
+        #
+        # Button for adding additional parameters; calls add_parameter helper function
+        #
         self.add_param_button = cellprofiler.setting.DoSomething("", "Add parameter", self.add_parameter)
+
+        #
+        # Button for refreshing the GUI; calls refreshGUI helper function
+        # This is necessary as the choices_fn function does not work without
+        # refreshing the GUI if new groups were added
+        #
         self.refresh_button = cellprofiler.setting.DoSomething("", "Refresh", self.refreshGUI)
 
     #
+    # helper function:
     # add the quality measurements which should be considered by B.O.
     # add a remove-button for all measurements except a mandatory one
     #
     def add_measurement(self, can_delete=True):
         group = cellprofiler.setting.SettingsGroup()
 
+        #
+        # Dropdown selection for measurements taken for the object
+        #
         group.append(
             "evaluation_measurement",
             cellprofiler.setting.Measurement(
@@ -122,6 +201,7 @@ features measured."""
             )
 
     #
+    # helper function:
     # add parameters grouped with corresponding modules
     # add a remove-button for all parameters except a mandatory one
     #
@@ -132,6 +212,9 @@ features measured."""
         if can_remove:
             group.append("divider", cellprofiler.setting.Divider(line=False))
 
+        #
+        # Dropdown selection for modules (IdentifyObjects modules)
+        #
         group.append("module_names", cellprofiler.setting.Choice(
             "Select module",
             choices=[""],
@@ -141,6 +224,9 @@ This is the module where Bayesian Optimisation will adjust settings
 """
         ))
 
+        #
+        # Dropdown selection for parameters of the selected modules
+        #
         group.append("parameter_names", cellprofiler.setting.Choice(
             "Select parameter",
             choices=[""],
@@ -153,35 +239,96 @@ These are the settings to be adjusted by Bayesian Optimisation
         if can_remove:
             group.append("remover",
                          cellprofiler.setting.RemoveSettingButton("", "Remove parameter", self.parameters, group))
+
         self.parameters.append(group)
 
-        # needs to update settings after button click! function call too slow?
-        # need counter for max count of 8
+    #
+    # setting_values are stored as unicode strings in the pipeline.
+    # If the module has settings groups, it needs to be ensured that settings() returns the correct
+    # number of settings as saved in the file.
+    # To do so, look at the setting values before settings() is called to determine how many to return.
+    # Add groups if necessary.
+    #
+    def prepare_settings(self, setting_values):
 
+        #
+        # No. of measurements in measurements group
+        #
+        count1 = int(setting_values[1])
+        #
+        # No. of parameters in parameters group
+        #
+        count2 = int(setting_values[2])
+
+        #
+        # Handle adding measurements
+        #
+        num_settings_1 = (len(setting_values) - NUM_FIXED_SETTINGS - NUM_GROUP2_SETTINGS*count2) / NUM_GROUP1_SETTINGS
+
+        if len(self.measurements) == 0:
+            self.add_measurement(False)
+        elif len(self.measurements) > num_settings_1:
+            del self.measurements[num_settings_1:]
+        else:
+            for i in range(len(self.measurements), num_settings_1):
+                self.add_measurement()
+
+        #
+        # Handle adding parameters
+        #
+        num_settings_2 = (len(setting_values) - NUM_FIXED_SETTINGS - NUM_GROUP1_SETTINGS * count1) / NUM_GROUP2_SETTINGS
+
+        if len(self.parameters) == 0:
+            self.add_parameter(False)
+        elif len(self.parameters) > num_settings_2:
+            del self.parameters[num_settings_2:]
+        else:
+            for i in range(len(self.parameters), num_settings_2):
+                self.add_parameter()
+
+    #  
+    # CellProfiler must know about the settings in the module.
+    # This method returns the settings in the order that they will be loaded and saved from a pipeline or project file.
+    # Accessing setting members of a group of settings requires looping through the group result list
+    #
     def settings(self):
-        result = []
-        result += [self.input_object_name]
+        result = [self.input_object_name]
+        result += [self.count1]
+        result += [self.count2]
         for m in self.measurements:
             result += [m.evaluation_measurement]
         for p in self.parameters:
             result += [p.module_names, p.parameter_names]
+
         return result
 
+    #  
+    # returns what the user should see in the GUI
+    # include buttons and dividers which are not added in the settings method
+    #
     def visible_settings(self):
         result = []
         result += [self.input_object_name]
+        result += [self.count1]
         for mod in self.measurements:
             result += [mod.evaluation_measurement]
+            if hasattr(mod, "remover"):
+                result += [mod.remover]
         result += [self.add_measurement_button, self.spacer]
+        result += [self.count2]
         for param in self.parameters:
+            if hasattr(param, "divider"):
+                result += [param.divider]
             result += [param.module_names, param.parameter_names]
+            if hasattr(param, "remover"):
+                result += [param.remover]
         result += [self.add_param_button]
         result += [self.refresh_button]
         return result
 
-
     #
-    # CellProfiler calls "run" on each image set in your pipeline.
+    # CellProfiler calls "run" on each image set in the pipeline
+    # The workspace as input parameter contains the state of the analysis so far
     #
     def run(self, workspace):
 
@@ -329,7 +476,8 @@ These are the settings to be adjusted by Bayesian Optimisation
         # do sth when optimisation was not needed?
 
     #
-    # Return a list of all pipeline modules
+    # helper function:
+    # Return a list of pipeline modules (only IdentifyObjects modules)
     #
     def get_module_list(self, pipeline):
         modules = pipeline.modules()
@@ -340,6 +488,7 @@ These are the settings to be adjusted by Bayesian Optimisation
         return module_list
 
     #
+    # helper function:
     # Return a list of settings from the chosen modules
     #
     def get_settings_from_modules(self, pipeline):
@@ -362,6 +511,7 @@ These are the settings to be adjusted by Bayesian Optimisation
         return setting_list
 
     #
+    # helper function:
     # Necessary to refresh the dropdown menus in GUI
     #
     def refreshGUI(self):

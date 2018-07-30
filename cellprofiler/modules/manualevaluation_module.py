@@ -1,29 +1,21 @@
 # coding=utf-8
 
-"""
-ManualEvaluation
-===================
-
-**ManualEvaluation** gives the user the opportunity to manually evaluate the quality of identified objects
-(eg nuclei, cytoplasm, adhesions).
-
-It needs to be placed after IdentifyObjects modules.
-The first object chosen in this module will be treated as the main object on which the quality measurement
-will be saved. Further supporting object outlines can be chosen for display.
-Their quality will not be measured or rated.
-
-============ ============ ===============
-Supports 2D? Supports 3D? Respects masks?
-============ ============ ===============
-YES          YES           NO
-============ ============ ===============
-
-"""
+#################################
+#
+# Imports from useful Python libraries
+#
+#################################
 
 import numpy
 import skimage.color
 import skimage.segmentation
 import skimage.util
+
+#################################
+#
+# Imports from CellProfiler
+#
+#################################
 
 import cellprofiler.image
 import cellprofiler.module
@@ -34,6 +26,46 @@ import cellprofiler.preferences
 import cellprofiler.gui
 import cellprofiler.gui.figure
 
+__doc__ = """\
+ManualEvaluation
+===================
+
+**ManualEvaluation** gives the user the opportunity to manually evaluate the quality of identified objects
+(eg nuclei, cytoplasm, adhesions) via a pop-up window during pipeline execution.
+
+The first object chosen in this module will be treated as the main object on which the quality measurement
+will be saved. Further supporting object outlines can be chosen for display.
+Their quality will not be measured or rated.
+
+============ ============ ===============
+Supports 2D? Supports 3D? Respects masks?
+============ ============ ===============
+YES          YES           NO
+============ ============ ===============
+
+
+Related Modules
+^^^^^^^^^^^^^^^
+The outlining functionality used in this module was partly taken from  **OverlayOutlines**.
+
+
+Requirements
+^^^^^^^^^^^^
+It needs to be placed after IdentifyObjects modules to access the objects to outline and evaluate.
+The first object chosen to be outlined will be the one evaluated. Additional objects chosen for outlining
+will only serve as orientation and help.
+
+
+Measurements made by this module
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Evaluation:**
+
+-  *Evaluation_ManualQuality*: A value defining the deviation of the manual quality evaluation of the identification
+quality of the selected object to a pre-defined minimum quality threshold.
+        e.g.    the deviation of a manual quality of 5 to the quality threshold 9 will be 44.4 (%)
+
+"""
 
 #
 # Constants
@@ -41,6 +73,8 @@ import cellprofiler.gui.figure
 CATEGORY = 'Evaluation'
 QUALITY = 'ManualQuality'
 FEATURE_NAME = 'Evaluation_ManualQuality'
+NUM_FIXED_SETTINGS = 4
+NUM_GROUP_SETTINGS = 2
 
 COLORS = {"White": (1, 1, 1),
           "Black": (0, 0, 0),
@@ -52,7 +86,17 @@ COLORS = {"White": (1, 1, 1),
 COLOR_ORDER = ["Red", "Green", "Blue", "Yellow", "White", "Black"]
 
 
+#
+# Create module class which inherits from cellprofiler.module.Module class
+#
 class ManualEvaluation(cellprofiler.module.Module):
+
+    #
+    # Declare the name for displaying the module, e.g. in menus 
+    # Declare the category under which it is stored and grouped in the menu
+    # Declare variable revision number which can be used to provide backwards compatibility  if CellProfiler will be
+    # released in a new version
+    #
     module_name = 'ManualEvaluation'
     variable_revision_number = 1
     category = "Advanced"
@@ -61,6 +105,9 @@ class ManualEvaluation(cellprofiler.module.Module):
     # Create and set CellProfiler settings for GUI and Pipeline execution #
     #######################################################################
 
+    #
+    # Define the setting's data types and grouped elements
+    #
     def create_settings(self):
 
         module_explanation = [
@@ -68,32 +115,43 @@ class ManualEvaluation(cellprofiler.module.Module):
             "Needs to be placed after IdentifyObjects modules. Choose the main object to rate the quality for first."
             "You can choose further supporting objects to display. Their qulaity will not be rated."]
 
+        #
+        # Notes will appear in the notes-box of the module
+        #
         self.set_notes([" ".join(module_explanation)])
 
+        #
+        # Minimum quality threshold for the identification quality of an object
+        #
         self.accuracy_threshold = cellprofiler.setting.Integer(
             text="Set min quality threshold (1-10)",
             value=8,
             minval=1,
             maxval=10,
             doc="""\
-This is the quality threshold for the image evaluation.
+This is the quality threshold for the object identification quality evaluation.
         """
         )
 
         self.divider = cellprofiler.setting.Divider()
 
+        #
+        # ImageNameSubscriber provides all available images in the image set
+        # The image is needed to display the outlines of an object on the image to the user
+        #
         self.image_name = cellprofiler.setting.ImageNameSubscriber(
             "Select image on which to display outlines",
             cellprofiler.setting.NONE,
             doc="""\
-*(Used only when a blank image has not been selected)*
-
 Choose the image to serve as the background for the outlines. You can
 choose from images that were loaded or created by modules previous to
 this one.
 """
         )
 
+        #
+        # Choose a mode for outlining the objects on the image
+        #
         self.line_mode = cellprofiler.setting.Choice(
             "How to outline",
             ["Inner", "Outer", "Thick"],
@@ -111,6 +169,9 @@ Specify how to mark the boundaries around an object:
 """
         )
 
+        #
+        # Provide a name for the created output image (which can be saved)
+        #
         self.output_image_name = cellprofiler.setting.ImageNameProvider(
             "Name the output image",
             "EvaluationOverlay",
@@ -122,13 +183,23 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         self.spacer = cellprofiler.setting.Divider(line=False)
 
+        #
+        # Group of outlines for different object that should be displayed on the image
+        #
         self.outlines = []
 
+        #
+        # Add first outline which cannot be deleted; there must be at least one
+        #
         self.add_outline(can_remove=False)
 
+        #
+        # Button for adding additional outlines; calls add_outline helper function
+        #
         self.add_outline_button = cellprofiler.setting.DoSomething("", "Add another outline", self.add_outline)
 
     #
+    # helper function:
     # add objects to outline and color chooser
     # add a remove-button for all outlines except a mandatory one
     #
@@ -137,6 +208,10 @@ image can be selected in later modules (for instance, **SaveImages**).
         if can_remove:
             group.append("divider", cellprofiler.setting.Divider(line=False))
 
+        #
+        # Object to be outlined which was identified in upstream IndentifyObjects module;
+        # accessible via ObjectNameSubscriber
+        #
         group.append(
             "objects_name",
             cellprofiler.setting.ObjectNameSubscriber(
@@ -149,6 +224,9 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         default_color = (COLOR_ORDER[len(self.outlines)] if len(self.outlines) < len(COLOR_ORDER) else COLOR_ORDER[0])
 
+        #
+        # Color chooser for setting the outline color to display on the image
+        #
         group.append(
             "color",
             cellprofiler.setting.Color(
@@ -166,6 +244,28 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         self.outlines.append(group)
 
+    #
+    # setting_values are stored as unicode strings in the pipeline.
+    # If the module has settings groups, it needs to be ensured that settings() returns the correct
+    # number of settings as saved in the file.
+    # To do so, look at the setting values before settings() is called to determine how many to return.
+    # Add groups if necessary.
+    #
+    def prepare_settings(self, setting_values):
+        num_settings = (len(setting_values) - NUM_FIXED_SETTINGS) / NUM_GROUP_SETTINGS
+        if len(self.outlines) == 0:
+            self.add_outline(False)
+        elif len(self.outlines) > num_settings:
+            del self.outlines[num_settings:]
+        else:
+            for i in range(len(self.outlines), num_settings):
+                self.add_outline()
+
+    #  
+    # CellProfiler must know about the settings in the module.
+    # This method returns the settings in the order that they will be loaded and saved from a pipeline or project file.
+    # Accessing setting members of a group of settings requires looping through the group result list
+    #
     def settings(self):
         result = [self.accuracy_threshold, self.image_name, self.output_image_name,
                   self.line_mode]
@@ -173,17 +273,30 @@ image can be selected in later modules (for instance, **SaveImages**).
             result += [outline.color, outline.objects_name]
         return result
 
+    #  
+    # returns what the user should see in the GUI
+    # include buttons and dividers which are not added in the settings method
+    #
     def visible_settings(self):
         result = [self.accuracy_threshold, self.divider, self.image_name]
         result += [self.output_image_name, self.line_mode, self.spacer]
         for outline in self.outlines:
-            result += [outline.objects_name]
-            result += [outline.color]
+            if hasattr(outline, "divider"):
+                result += [outline.divider]
+            result += [outline.objects_name, outline.color]
             if hasattr(outline, "remover"):
                 result += [outline.remover]
         result += [self.add_outline_button]
         return result
 
+    ###################################################################
+    # Run method will be executed in a worker thread of the pipeline #
+    ###################################################################
+
+    #
+    # CellProfiler calls "run" on each image set in the pipeline
+    # The workspace as input parameter contains the state of the analysis so far
+    #
     def run(self, workspace):
         #
         # Get the image pixels from the image set
@@ -195,58 +308,75 @@ image can be selected in later modules (for instance, **SaveImages**).
         #
         pixel_data = self.run_color(workspace, base_image.copy())
 
+        #
         # create new output image with the object outlines
+        #
         output_image = cellprofiler.image.Image(pixel_data, dimensions=dimensions)
 
+        #
         # add new image with object outlines to workspace image set
+        #
         workspace.image_set.add(self.output_image_name.value, output_image)
-
         image = workspace.image_set.get_image(self.image_name.value)
 
+        #
         # set the input image as the parent image of the output image
+        #
         output_image.parent_image = image
 
         #
-        # Call the interaction handler with the images. The interaction
-        # handler will be invoked
+        # prepare the pixel data which will be passed to the interaction handler
         #
         base_pixel_data = image.pixel_data
         out_pixel_data = output_image.pixel_data
 
-
         #
-        # interrupt pipeline execution and send interaction request to workspace
-        # as run-method is executed in a separate thread, it needs to give control to the UI thread
-        # the handle_interaction method will be called and return user input (quality measure)
+        # Interrupt pipeline execution and send interaction request to workspace.
+        # As the run-method is executed in a separate thread, it needs to give control to the UI thread.
+        # The handle_interaction method will be called and gets the pixel data passed as parameters.
+        # It will then return the user input (quality measure).
         #
         result = workspace.interaction_request(self, base_pixel_data, out_pixel_data)
 
+        #
+        # declare array of deviation value; values must always be passed as arrays when saved as measurement
+        #
         deviation = []
 
-        print("Result: "+str(result))
+        # print("Result: "+str(result))
 
+        #
+        # determine whether the user result is lower than the minimum quality threshold;
+        # if so, calculate the percentaged deviation value and save it to deviation array
+        #
         if int(result) < int(self.accuracy_threshold.value):
-            print("not passed")
+            # print("not passed")
             dev = int(self.accuracy_threshold.value) - int(result)
             p_dev = (dev * 100) / int(self.accuracy_threshold.value)
-            print("p_dev:")
-            print(p_dev)
+            # print("p_dev:")
+            # print(p_dev)
             deviation += [p_dev]
 
         else:
-            print("passed")
+            # print("passed")
             deviation += [0]
 
+        #
+        # transform deviation to a numpy array
+        #
         dev_array = numpy.array(deviation)
         # print(dev_array)
 
-        # Add measurement for deviations to workspace measurements to make it available to Bayesian Module
-        # note: first object chosen is leading object where measurements are saved
-
+        #
+        # Add measurement for deviation to workspace measurements to make it available to downstream modules,
+        # e.g. the Bayesian Module
+        # note: the first object chosen for outlining is leading object where measurement is saved
+        #
         workspace.add_measurement(self.outlines[0].objects_name.value, FEATURE_NAME, dev_array)
 
     #
-    # called during run of the pipeline; control is passed to UI
+    # handle_interaction is called during the run of the pipeline when an interaction request was made;
+    # control is passed to UI thread and user sees UI window created in the interaction method
     #
     def handle_interaction(self, base_pixel_data, out_pixel_data):
         #
@@ -258,8 +388,7 @@ image can be selected in later modules (for instance, **SaveImages**).
         from matplotlib.backends.backend_wxagg import NavigationToolbar2WxAgg as NavigationToolbar
 
         #
-        # Make a wx.Dialog. "with" will garbage collect all of the
-        # UI resources when the user closes the dialog.
+        # Make a wx.Dialog. "with" will garbage collect all of the UI resources when the user closes the dialog.
         #
         # This is how the dialog frame is structured:
         #
@@ -286,47 +415,54 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         with wx.Dialog(None, title="Rate object detection quality", size=(800, 600)) as dlg:
             #
-            # default quality value to be returned when no button was pressed is 0
+            # default quality value to be returned when no button was pressed and window was closed
             #
             self.quality = 0
 
             #
-            # A wx.Sizer lets you automatically adjust the size
-            # of a window's subwindows.
+            # A wx.Sizer automatically adjusts the size of a window's sub-windows
             #
             dlg.Sizer = wx.BoxSizer(wx.VERTICAL)
+
             #
-            # We draw on the figure
+            # The figure holds the plot and axes
             #
             figure = plt.figure()
+
             #
-            # Define an Axes on the figure
+            # Define axes on the figure
             #
             axes = figure.add_axes((.05, .05, .9, .9))
+
             #
             # show the original image and overlays
             #
             axes.imshow(base_pixel_data, 'gray', interpolation='none')
             axes.imshow(out_pixel_data, 'gray', interpolation='none', alpha=0.5)
+
             #
             # canvas which renders the figure
             #
             canvas = matplotlib.backends.backend_wxagg.FigureCanvasWxAgg(dlg, -1, figure)
+
             #
-            # Create a default toolbar for the canvas image
+            # Create a default toolbar for the canvas
             #
             toolbar = NavigationToolbar(canvas)
             toolbar.Realize()
+
             #
             # Put the toolbar and the canvas in the dialog
             #
             dlg.Sizer.Add(toolbar, 0, wx.LEFT | wx.EXPAND)
             dlg.Sizer.Add(canvas, 1, wx.EXPAND)
+
             #
             # add horizontal Sizer to Frame Sizer
             #
             hsizer = wx.BoxSizer(wx.HORIZONTAL)
             dlg.Sizer.Add(hsizer, 2, wx.ALIGN_CENTER)
+
             #
             # create info label and rating buttons
             #
@@ -395,7 +531,7 @@ image can be selected in later modules (for instance, **SaveImages**).
             return self.quality
 
     #
-    # use matplotlib to display results for evaluation
+    # Gets the image pixels from the image in the workspace
     #
     def base_image(self, workspace):
 
@@ -409,6 +545,7 @@ image can be selected in later modules (for instance, **SaveImages**).
         return skimage.color.gray2rgb(pixel_data), image.dimensions
 
     #
+    # helper method;
     # prepares colors to draw the outlines of the objects selected
     #
     def run_color(self, workspace, pixel_data):
@@ -422,6 +559,7 @@ image can be selected in later modules (for instance, **SaveImages**).
         return pixel_data
 
     #
+    # helper method;
     # draws the outlines of the objects selected
     #
     def draw_outlines(self, pixel_data, objects, color):
@@ -446,12 +584,16 @@ image can be selected in later modules (for instance, **SaveImages**).
 
         return pixel_data
 
+    #
+    # helper method;
+    # resizes the object labels
+    #
     def resize(self, pixel_data, labels):
         initial_shape = labels.shape
 
         final_shape = pixel_data.shape
 
-        if pixel_data.ndim > labels.ndim:  # multichannel
+        if pixel_data.ndim > labels.ndim:
             final_shape = final_shape[:-1]
 
         adjust = numpy.subtract(final_shape, initial_shape)
@@ -468,6 +610,10 @@ image can be selected in later modules (for instance, **SaveImages**).
             constant_values=(0)
         )
 
+    #
+    # helper method;
+    # determines 3D
+    #
     def volumetric(self):
         return True
 
@@ -494,7 +640,7 @@ image can be selected in later modules (for instance, **SaveImages**).
         return []
 
     #
-    # Return the feature names if the object_name and category match to GUI
+    # Return the feature names if the object_name and category match to the GUI for measurement subscribers
     #
     def get_measurements(self, pipeline, object_name, category):
         if (object_name == self.outlines[0].objects_name and category == CATEGORY):

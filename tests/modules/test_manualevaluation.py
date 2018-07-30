@@ -15,6 +15,7 @@ from cellprofiler.modules import instantiate_module
 INPUT_IMAGE_NAME = "inputImage"
 OUTPUT_IMAGE_NAME = "outputImage"
 INPUT_OBJECT_NAME = "UnfilteredNuclei"
+OTHER_OBJECT_NAME = "Cytoplasm"
 NEW_MEASUREMENT = 'Evaluation_ManualQuality'
 
 
@@ -29,7 +30,7 @@ class TestManualEvaluation(unittest.TestCase):
         self.assertFalse(self.make_instance() is None)
 
     '''Test if settings are created'''
-    def test_02_settings(self):
+    def test_02_create_settings(self):
         module = self.make_instance()
         module.accuracy_threshold.value = 8
         module.image_name.value = INPUT_IMAGE_NAME
@@ -37,18 +38,45 @@ class TestManualEvaluation(unittest.TestCase):
         module.output_image_name.value = OUTPUT_IMAGE_NAME
         module.outlines[0].objects_name.value = INPUT_OBJECT_NAME
         module.outlines[0].color.value = "gray"
+        module.add_outline()
+        module.outlines[1].objects_name.value = OTHER_OBJECT_NAME
+        module.outlines[1].color.value = "red"
+
+        self.assertEqual(module.accuracy_threshold.value, 8)
+        self.assertEqual(module.image_name.value, INPUT_IMAGE_NAME)
+        self.assertEqual(module.line_mode.value, "Inner")
+        self.assertEqual(module.output_image_name.value, OUTPUT_IMAGE_NAME)
+        self.assertEqual(module.outlines[0].objects_name.value, INPUT_OBJECT_NAME)
+        self.assertEqual(module.outlines[0].color.value, "gray")
+        self.assertEqual(module.outlines[1].objects_name.value, OTHER_OBJECT_NAME)
+        self.assertEqual(module.outlines[1].color.value, "red")
+
+    '''Test if settings are correct'''
+    def test_03_settings(self):
+        module = self.make_instance()
+        module.accuracy_threshold.value = 8
+        module.image_name.value = INPUT_IMAGE_NAME
+        module.line_mode.value = "Inner"
+        module.output_image_name.value = OUTPUT_IMAGE_NAME
+        module.outlines[0].objects_name.value = INPUT_OBJECT_NAME
+        module.outlines[0].color.value = "gray"
+        module.add_outline()
+        module.outlines[1].objects_name.value = OTHER_OBJECT_NAME
+        module.outlines[1].color.value = "red"
 
         settings = module.settings()
-        self.assertEqual(len(settings), 6)
+        self.assertEqual(len(settings), 8)
         self.assertEqual(id(module.accuracy_threshold), id(settings[0]))
         self.assertEqual(id(module.image_name), id(settings[1]))
         self.assertEqual(id(module.output_image_name), id(settings[2]))
         self.assertEqual(id(module.line_mode), id(settings[3]))
         self.assertEqual(id(module.outlines[0].color), id(settings[4]))
         self.assertEqual(id(module.outlines[0].objects_name), id(settings[5]))
+        self.assertEqual(id(module.outlines[1].color), id(settings[6]))
+        self.assertEqual(id(module.outlines[1].objects_name), id(settings[7]))
 
     '''Test if new measurement is created after run'''
-    def test_03_run(self):
+    def test_04_run(self):
         module = self.make_instance()
         module.accuracy_threshold.value = 8
         module.image_name.value = INPUT_IMAGE_NAME

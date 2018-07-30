@@ -12,7 +12,8 @@ from cellprofiler.modules import instantiate_module
 # Constants
 #
 INPUT_OBJECT_NAME = "UnfilteredNuclei"
-EXISTING_MEASUREMENT = "AreaShape_Solidity"
+EXISTING_MEASUREMENT1 = "AreaShape_Solidity"
+EXISTING_MEASUREMENT2 = "AreaShape_MeanRadius"
 NEW_MEASUREMENT = "Evaluation_Deviation"
 
 
@@ -27,29 +28,51 @@ class TestAutomatedEvaluation(unittest.TestCase):
         self.assertFalse(self.make_instance() is None)
 
     '''Test if settings are created'''
-    def test_02_settings(self):
+    def test_02_create_settings(self):
         module = self.make_instance()
         module.input_object_name.value = INPUT_OBJECT_NAME
-        module.measurements[0].measurement.value = EXISTING_MEASUREMENT
-        module.measurements[0].range.min = 0.9
-        module.measurements[0].range.max = 1.0
+        module.measurements[0].measurement.value = EXISTING_MEASUREMENT1
+        module.measurements[0].range.value = (0.9, 1.0)
+        module.add_measurement()
+        module.measurements[1].measurement.value = EXISTING_MEASUREMENT2
+        module.measurements[1].range.value = (10.0, 20.0)
+
+        self.assertEqual(module.input_object_name.value, INPUT_OBJECT_NAME)
+        self.assertEqual(module.measurements[0].measurement.value, EXISTING_MEASUREMENT1)
+        self.assertEqual(module.measurements[0].range.value, (0.9, 1.0))
+        self.assertEqual(module.measurements[1].measurement.value, EXISTING_MEASUREMENT2)
+        self.assertEqual(module.measurements[1].range.value, (10.0, 20.0))
+
+    '''Test if settings are correct'''
+    def test_03_settings(self):
+        module = self.make_instance()
+        module.input_object_name.value = INPUT_OBJECT_NAME
+        module.measurements[0].measurement.value = EXISTING_MEASUREMENT1
+        module.measurements[0].range.value = (0.9, 1.0)
+        module.add_measurement()
+        module.measurements[1].measurement.value = EXISTING_MEASUREMENT2
+        module.measurements[1].range.value = (10.0, 20.0)
+
         settings = module.settings()
-        self.assertEqual(len(settings), 3)
+        self.assertEqual(len(settings), 5)
         self.assertEqual(id(module.input_object_name), id(settings[0]))
         self.assertEqual(id(module.measurements[0].measurement), id(settings[1]))
         self.assertEqual(id(module.measurements[0].range), id(settings[2]))
+        self.assertEqual(id(module.measurements[1].measurement), id(settings[3]))
+        self.assertEqual(id(module.measurements[1].range), id(settings[4]))
 
     '''Test if new measurement is created after run'''
-    def test_03_run(self):
+    def test_04_run(self):
         module = self.make_instance()
         module.input_object_name.value = INPUT_OBJECT_NAME
-        module.measurements[0].measurement.value = EXISTING_MEASUREMENT
-        module.measurements[0].range.min = 0.9
-        module.measurements[0].range.max = 1.0
+        module.measurements[0].measurement.value = EXISTING_MEASUREMENT1
+        module.measurements[0].range.value = (0.9, 1.0)
+        module.add_measurement()
+        module.measurements[1].measurement.value = EXISTING_MEASUREMENT2
+        module.measurements[1].range.value = (10.0, 20.0)
         module.module_num = 1
         pipeline = cpp.Pipeline()
         pipeline.add_module(module)
-
 
         #
         # Create an object set and some objects for the set (randomly)
@@ -77,7 +100,13 @@ class TestAutomatedEvaluation(unittest.TestCase):
             meas += [0.99]
         array_meas = np.array(meas)
 
-        measurements.add_measurement(INPUT_OBJECT_NAME, EXISTING_MEASUREMENT, array_meas)
+        rad = [5]
+        for i in range(1, count):
+            meas += [10]
+        array_rad = np.array(rad)
+
+        measurements.add_measurement(INPUT_OBJECT_NAME, EXISTING_MEASUREMENT1, array_meas)
+        measurements.add_measurement(INPUT_OBJECT_NAME, EXISTING_MEASUREMENT2, array_rad)
 
         #
         # Make the workspace
@@ -94,4 +123,4 @@ class TestAutomatedEvaluation(unittest.TestCase):
         # Check output
         #
         values = measurements.get_measurement(INPUT_OBJECT_NAME, NEW_MEASUREMENT)
-        self.assertEqual(values, np.array([[0]]))
+        self.assertAlmostEqual(values.tolist(), np.array([0.0, 50]).tolist())
