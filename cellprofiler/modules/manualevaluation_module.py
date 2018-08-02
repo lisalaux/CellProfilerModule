@@ -46,7 +46,10 @@ YES          YES           NO
 
 Related Modules
 ^^^^^^^^^^^^^^^
-The outlining functionality used in this module was partly taken from  **OverlayOutlines**.
+The outlining functionality used in this module was partly taken from  **OverlayOutlines**. It comprises the 
+methods "resize", "draw_outlines", "run_color" and "base_image".
+The skeleton code for the "handle_interaction" method was taken from CellProfiler's tutorial modules, example 2c, 
+available at https://github.com/CellProfiler/tutorial/tree/master/cellprofiler-tutorial.
 
 
 Requirements

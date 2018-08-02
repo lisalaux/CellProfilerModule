@@ -285,7 +285,10 @@ deviation will be calculated"""
             # calculate the percentaged value in relation to all values in the array to weight it proportionally and add
             # it to deviations
             #
-            deviations += [p_dev/len(measurement_values)]
+            if len(measurement_values) == 0:
+                deviations += [0]
+            else:
+                deviations += [p_dev/len(measurement_values)]
             # print("deviations:")
             # print(deviations)
 

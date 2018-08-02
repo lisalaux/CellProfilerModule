@@ -12,6 +12,7 @@ from scipy.stats import norm
 import matplotlib.pyplot as plt
 from copy import deepcopy
 from itertools import product
+import os
 
 # import pdb
 # import pdbi
@@ -20,7 +21,7 @@ from itertools import product
 #
 # Imports from CellProfiler
 #
-##################################
+#################################
 
 import cellprofiler.image
 import cellprofiler.module
@@ -37,7 +38,7 @@ BayesianOptimisation
 
 **BayesianOptimisation** uses Bayesian Optimisation methods on parameters (settings) chosen from modules placed before 
 this module in the pipeline. It needs either a ManualEvaluation or AutomatedEvaluation or both modules placed beforehand 
-in the pipeline. It can only evaluate and operate on the quality of one object at a time. 
+in the pipeline. It can only evaluate and operate on the quality measurements of one object at a time. 
 
 The Bayesian Optimisation will only be executed if required quality thresholds/ranges defined in the evaluation 
 module(s) are not met.
@@ -48,14 +49,41 @@ Supports 2D? Supports 3D? Respects masks?
 YES          YES           NO
 ============ ============ ===============
 
+
+Requirements
+^^^^^^^^^^^^
+There must be at least one evaluation module, either **ManualEvaluation** or **AutomatedEvaluation** placed
+before this module in order to have evaluation measurements available.
+Either only one or both evaluation measurements can be chosen to be taken as quality measure for the optimisation 
+procedure.
+
+
+Technical notes
+^^^^^^^^^^^^^^
+The max. number of parameters to optimise is currently 4. 
+There is a filter set for only making parameters form the IdentifyObjects modules available for optimisation. This 
+can be changed by just removing the filter in the get_module_list helper method.
+
+
+References
+^^^^^^^^^^
+The basic code for the Bayesian Optimisation procedure was provided by Bjørn Sand Jensen (University of Glasgow) 
+-- bjorn.jensen@glasgow.ac.uk -- and altered for the purposes of this module.
+
 """
 
 #
 # Constants
 #
-NUM_FIXED_SETTINGS = 3
+NUM_FIXED_SETTINGS = 4
 NUM_GROUP1_SETTINGS = 1
-NUM_GROUP2_SETTINGS = 2
+NUM_GROUP2_SETTINGS = 4
+
+#
+# for testing/ prinout purposes only
+#
+np.set_printoptions(suppress=True)
+# np.set_printoptions(threshold=np.nan)
 
 
 #
@@ -86,8 +114,7 @@ class BayesianOptimisation(cellprofiler.module.Module):
             "module in the pipeline. Step 1: Choose the objects which you have evaluated in the evaluation modules. "
             "The Bayesian module should consider these measures as quality indicators. Step 2: Choose the parameters "
             "(settings) to be adjusted. Bayesian Optimisation will be executed if required quality thresholds/ranges "
-            "are not met. The chosen modules with corresponding settings need to be in order! (first module appearing"
-            "in the pipeline needs to be chosen first)"]
+            "are not met."]
 
         #
         # Notes will appear in the notes-box of the module
@@ -122,7 +149,7 @@ No. of evaluation modules before BayesianModule."""
             'No. of settings to be adjusted',
             2,
             minval=1,
-            maxval=5,
+            maxval=4,
             doc="""\
 No. of settings that should be adjusted by BayesianModule."""
         )
@@ -145,6 +172,21 @@ No. of settings that should be adjusted by BayesianModule."""
 
         self.spacer = cellprofiler.setting.Divider(line=True)
 
+        #
+        # The maximum number of iterations for the Bayesian Optimisation
+        #
+        self.max_iter = cellprofiler.setting.cellprofiler.setting.Integer(
+            'Max. iterations for Bayesian Optimisation',
+            150,
+            minval=2,
+            maxval=1000,
+            doc="""\
+Define the maximum number of iterations the Bayesian Optimisation should run. The minimum number is 2, 
+recommended iterations are 20 - 200, depending on the problem to be solved. """
+        )
+
+        self.spacer4 = cellprofiler.setting.Divider(line=True)
+
         self.parameters = []
 
         #
@@ -157,12 +199,27 @@ No. of settings that should be adjusted by BayesianModule."""
         #
         self.add_param_button = cellprofiler.setting.DoSomething("", "Add parameter", self.add_parameter)
 
+        self.spacer2 = cellprofiler.setting.Divider(line=True)
+
         #
         # Button for refreshing the GUI; calls refreshGUI helper function
         # This is necessary as the choices_fn function does not work without
         # refreshing the GUI if new groups were added
         #
-        self.refresh_button = cellprofiler.setting.DoSomething("", "Refresh", self.refreshGUI)
+        self.refresh_button = cellprofiler.setting.DoSomething("", "Refresh GUI", self.refreshGUI)
+
+        self.spacer3 = cellprofiler.setting.Divider(line=True)
+
+        #
+        # Button for deleting existing files storing values from previous runs
+        #
+        self.delete_button = cellprofiler.setting.DoSomething(
+            "",
+            "Delete previous Data",
+            self.delete_data,
+            doc="""\
+If there is previously gathered data saved in a file you can choose to delete it."""
+        )
 
     #
     # helper function:
@@ -236,6 +293,37 @@ These are the settings to be adjusted by Bayesian Optimisation
 """
         ))
 
+        #
+        # The parameters will be adjusted within this range
+        #
+        group.append(
+            "range",
+            cellprofiler.setting.FloatRange(
+                'Set min and max boundaries for variation',
+                (1.00, 100.00),
+                minval=00.00,
+                maxval=1000.00,
+                doc="""\
+The Bayesian Optimisation will vary the parameter within this range of candidates. Please note that the lower
+bound is inclusive, the upper bound is exclusive."""
+            )
+        )
+
+        #
+        # The parameters will be adjusted within this range
+        #
+        group.append(
+            "steps",
+            cellprofiler.setting.Float(
+                'Set steps between boundaries',
+                0.1,
+                minval=00.00,
+                maxval=10.00,
+                doc="""\
+The variation steps within the chosen range for choosing a candidate set."""
+            )
+        )
+
         if can_remove:
             group.append("remover",
                          cellprofiler.setting.RemoveSettingButton("", "Remove parameter", self.parameters, group))
@@ -297,8 +385,9 @@ These are the settings to be adjusted by Bayesian Optimisation
         result += [self.count2]
         for m in self.measurements:
             result += [m.evaluation_measurement]
+        result += [self.max_iter]
         for p in self.parameters:
-            result += [p.module_names, p.parameter_names]
+            result += [p.module_names, p.parameter_names, p.range, p.steps]
 
         return result
 
@@ -307,24 +396,26 @@ These are the settings to be adjusted by Bayesian Optimisation
     # include buttons and dividers which are not added in the settings method
     #
     def visible_settings(self):
-        result = []
-        result += [self.input_object_name]
+        result = [self.input_object_name]
         result += [self.count1]
         for mod in self.measurements:
             result += [mod.evaluation_measurement]
             if hasattr(mod, "remover"):
                 result += [mod.remover]
-        result += [self.add_measurement_button, self.spacer]
+        result += [self.add_measurement_button, self.spacer, self.max_iter, self.spacer4]
         result += [self.count2]
         for param in self.parameters:
             if hasattr(param, "divider"):
                 result += [param.divider]
-            result += [param.module_names, param.parameter_names]
+            result += [param.module_names, param.parameter_names, param.range, param.steps]
             if hasattr(param, "remover"):
                 result += [param.remover]
-        result += [self.add_param_button]
-        result += [self.refresh_button]
+        result += [self.add_param_button, self.spacer2, self.refresh_button, self.spacer3, self.delete_button]
         return result
+
+    ###################################################################
+    # Run method will be executed in a worker thread of the pipeline #
+    ###################################################################
 
     #
     # CellProfiler calls "run" on each image set in the pipeline
@@ -352,7 +443,6 @@ These are the settings to be adjusted by Bayesian Optimisation
                 for e in manual_evaluation_result:
                     if float(e) > 0.0:
                         self.optimisation_on = True
-                        print("Manual evaluation causes opt_on")
 
             elif m.evaluation_measurement.value_text == "Evaluation_Deviation":
                 auto_evaluation_results = workspace_measurements.get_current_measurement(
@@ -360,105 +450,134 @@ These are the settings to be adjusted by Bayesian Optimisation
                 for e in auto_evaluation_results:
                     if float(e) > 0.0:
                         self.optimisation_on = True
-                        print("Auto evaluation causes opt_on")
 
-        print("Bayesian Evaluation Results list: ")
-        print("Manual: ")
-        print(manual_evaluation_result)
-        print("Auto: ")
-        print(auto_evaluation_results)
+        #
+        # start optimisation if quality is not satisfying
+        #
+        if self.optimisation_on:
 
-        if self.optimisation_on: # may need to change this??? because it would not run BO then for last time
             #
             # get modules and their settings
             #
             number_of_params = self.parameters.__len__()
             print("Number of params: {}".format(number_of_params))
 
+            # save operational data in lists; the lists operate with indices;
+            # an indices corresponds to a certain module, a setting name in this module and the value of this setting
             target_setting_module_list = []     # saves module objects
             target_setting_names_list = []      # saves setting names
             target_setting_values_list = []     # saves setting values of the selected settings in the module
-            # the three lists operate with indices; an indices corresponds to a certain module, a setting name in
-            # this module and the value of this setting
+            target_setting_range = []           # saves the ranges in which the setting values shall be manipulated
+            target_setting_steps = []           # saves the steps the range can vary
 
-            for module in self.parameters:
-                name_list = module.module_names.value_text.split(" #")
+
+            #
+            # get the data for the lists by looping through all settings chosen by the user
+            #
+            for p in self.parameters:
+
+                #
+                # get the module object
+                #
+                name_list = p.module_names.value_text.split(" #")
                 number = int(name_list[1])
                 target_module = pipeline.module(number)
 
-                print(target_module.module_name)
+                #
+                # save module number in module_list
+                #
                 target_setting_module_list += [number]
 
-                target_setting_name = module.parameter_names.value_text
+                #
+                # get the setting name
+                #
+                target_setting_name = p.parameter_names.value_text
 
                 for setting in target_module.settings():
                     if setting.get_text() == target_setting_name:
-                        print("Setting name: "+setting.get_text())
+                        #
+                        # add setting name to Names_list and setting value to values_list
+                        #
                         target_setting_names_list += [setting.get_text()]
-                        print("Old setting value: "+str(setting.get_value()))
                         target_setting_values_list += [setting.get_value()]
 
-            #
-            # do the bayesian optimisation with a new function that takes the 3 lists and alters the values_list
-            #
-            new_target_settings_array = self.bayesian_optimisation(manual_evaluation_result, auto_evaluation_results,
-                                                             target_setting_values_list)
-
-            new_target_settings = new_target_settings_array.flatten()
-
-
-            print("NEW SETTINGS AFTER BO:")
-            print(new_target_settings)
-
-            print("first index:")
-            print(new_target_settings[0])
-            #if new_target_settings == 0:
-                # bo is finished
-
-            # elif new_target_settings != 0:
-                # bo is not finished
+                #
+                # save range and steps into lists; ranges are saved as a tuple
+                #
+                target_setting_range += [p.range.value]
+                target_setting_steps += [float(p.steps.value)]
 
             #
-            # modify modules with new setting values
+            # do the bayesian optimisation with a new function that takes the lists and returns new parameters for
+            # the settings
             #
-            for i in range(number_of_params):
-                target_module = pipeline.module(target_setting_module_list[i])
-                for setting in target_module.settings():
-                    if setting.get_text() == target_setting_names_list[i]:
-                        print("Setting name: "+setting.get_text())
-                        setting.set_value(new_target_settings[i])
-                        pipeline.edit_module(target_setting_module_list[i], is_image_set_modification=False)
-                        print("New setting value: "+str(setting.get_value()))
+            new_target_settings_array, current_y_values = self.bayesian_optimisation(manual_evaluation_result,
+                                                                                     auto_evaluation_results,
+                                                                                     target_setting_values_list,
+                                                                                     target_setting_range,
+                                                                                     target_setting_steps,
+                                                                                     self.max_iter.get_value())
 
-            # pipeline re-runs automatically from where module has been changed; modules therefore need to be in order!
-            # problem: pipeline runs only so many times as it has modules in total
-            # --> need to find a way to re-set count
-            # start_module = pipeline.module(5)
+            print("New_target_setting_array")
+            print(new_target_settings_array)
 
-            # sth with debug-mode on if-statement
-            #workspace.set_module(start_module)
-            #workspace.set_disposition(cellprofiler.workspace.DISPOSITION_CONTINUE)
-
-            # does not work with gui
-            #pipelist = cellprofiler.gui.pipelinelistview.PipelineListView()
-            #cellprofiler.gui.pipelinelistview.PipelineListView.set_current_debug_module(pipelist, start_module)
-
-
-
+            print("Current y")
+            print(current_y_values)
 
             #
-            # if user wants to show the display-window, save data needed for display in workspace.display_data
+            # indicates that max_interations are reached and B.O. is finished
             #
-            if self.show_window:
-                # also show quality measures before???
-                workspace.display_data.statistics = []
+            if new_target_settings_array is None:
+                self.optimisation_on = False
+
+            #
+            # adjust the module settings with new x parameters returned form B.O.
+            #
+            else:
+                new_target_settings = new_target_settings_array.flatten()
+                current_y_values = current_y_values.flatten()
+
+                #
+                # modify modules with new setting values
+                #
                 for i in range(number_of_params):
-                    workspace.display_data.statistics.append(
-                        (target_setting_names_list[i], target_setting_values_list[i], new_target_settings[i]))
+                    target_module = pipeline.module(target_setting_module_list[i])
+                    for setting in target_module.settings():
+                        if setting.get_text() == target_setting_names_list[i]:
+                            setting.set_value(new_target_settings[i])
 
-                workspace.display_data.col_labels = ("Setting Name", "Old Value", "New Value")
+                            #
+                            # inform the pipeline about the edit
+                            # pipeline re-runs from where the module has been changed
+                            #
+                            pipeline.edit_module(target_setting_module_list[i], is_image_set_modification=False)
+
+                # problem: pipeline runs only so many times as it has modules in total
+                # --> need to find a way to re-set count
+                # start_module = pipeline.module(5)
+
+                # sth with debug-mode on if-statement
+                # workspace.set_module(start_module)
+                # workspace.set_disposition(cellprofiler.workspace.DISPOSITION_CONTINUE)
+
+                # does not work with gui
+                # pipelist = cellprofiler.gui.pipelinelistview.PipelineListView()
+                # cellprofiler.gui.pipelinelistview.PipelineListView.set_current_debug_module(pipelist, start_module)
+
+                #
+                # if user wants to show the display-window, save data needed for display in workspace.display_data
+                #
+                if self.show_window:
+                    workspace.display_data.statistics = []
+                    for i in range(number_of_params):
+                        workspace.display_data.statistics.append(
+                            (target_setting_names_list[i], target_setting_values_list[i], new_target_settings[i]))
+
+                    workspace.display_data.col_labels = ("Setting Name", "Old Value", "New Value")
+                    workspace.display_data.y_values = current_y_values
 
         else:
+
             print("no optimisation")
 
     #
@@ -467,13 +586,39 @@ These are the settings to be adjusted by Bayesian Optimisation
     # used a CP defined figure to plot/display data via matplotlib
     #
     def display(self, workspace, figure):
+        #
+        # data plotted when BO was run
+        #
         if self.optimisation_on:
-            figure.set_subplots((1, 1))
-            figure.subplot_table(0, 0,
+            #
+            # create two subplots
+            #
+            figure.set_subplots((1, 2))
+
+            #
+            # prepare first plot showing a scatter plot with the development of y (quality indicator) over the rounds
+            #
+            num_y = np.size(workspace.display_data.y_values)
+
+            x_values_axis = np.arange(1, num_y+1)
+
+            figure.subplot_scatter(0, 0,
+                                   x_values_axis, workspace.display_data.y_values,
+                                   xlabel="Iteration", ylabel="Quality", title="Quality over iterations")
+
+            #
+            # prepare second plot showing a table with old and new values
+            #
+            figure.subplot_table(0, 1,
                                  workspace.display_data.statistics,
                                  col_labels=workspace.display_data.col_labels)
 
-        # do sth when optimisation was not needed?
+        #
+        # information plotted when BO was not run
+        #
+        else:
+            figure.set_subplots((1, 1))
+            figure.set_subplot_title("No Optimisation", 0, 0)
 
     #
     # helper function:
@@ -517,354 +662,341 @@ These are the settings to be adjusted by Bayesian Optimisation
     def refreshGUI(self):
         print("GUI refreshed")
 
+    #
+    # helper function:
+    # Deletes existing files storing previous values for x and y
+    #
+    def delete_data(self):
+        x_filename = "x_bo_{}.txt".format(self.get_module_num())
+        y_filename = "y_bo_{}.txt".format(self.get_module_num())
+
+        os.remove(x_filename)
+        os.remove(y_filename)
+
+        print("Data deleted")
+
     # def reset_module_counter(self, pipelinelistview):
     #     pipelinelistview.set_current_debug_module()
 
     # def reset_debug(self, pipelinecontroller):
     #     pipelinecontroller.on_debug_continue()
 
-    #
-    # Apply bayesian optimisation to adjust settings for next pipeline run
-    #
-    # def bayesian_optimisation_1(self, manual_result, auto_evaulation_results, module_list, names_list, values_list):
-    #     # do the optimisation and return new values in values_list
-    #     print("Old value in BO def: ")
-    #     print(values_list[0])
-    #
-    #     new_values = list(values_list)
-    #     # new_values[0] = "Two classes"   # Two or three class thresholding
-    #     # new_values[1] = "300"           # Size of adaptive window
-    #     new_values[0] = "4"             # Threshold smoothing scale
-    #     new_values[1] = "1.2"           # Threshold correction factor
-    #
-    #     return new_values
-
     #######################################################################
     # Actual Bayesian optimisation functionality (from Bjørn Sand Jensen) #
     #######################################################################
 
-    def bayesian_optimisation(self, manual_result, auto_evaulation_results, values_list):
-        # need to load and write available data to a file to persist it; files contain x and y values
-        # TODO for how many parameters is this working? for approx. 8-10 max
-
-        # define the name of the files where x and y values are written to to persist them over the iterations
+    def bayesian_optimisation(self, manual_result, auto_evaulation_results,
+                              values_list, setting_range, range_steps, max_iter):
+        #
+        # need to load and write available data to files to persist it over the iterations; files contain x and y values
+        # define the name of the files where x and y values are written to; names store the module number in case
+        # BO module is used in more than one place of the pipeline
+        #
         x_filename = "x_bo_{}.txt".format(self.get_module_num())
         y_filename = "y_bo_{}.txt".format(self.get_module_num())
 
+        #
         # open or create x_file and write the values of the setting parameters to it
-        # TODO the x values need to be normalised as well! (to range 0-1; no discrete values possible at the moment)
-        # TODO DO NOT FORGET TO DELETE FILE AFTER BO COMPLETED or should values be persisted??? or is it better to
-        # TODO persist the model with pickle (not necessary)
+        #
         with open(x_filename, "a+") as x_file:
             for v in values_list:
                 x_file.write("{} ".format(v))
             x_file.write("\n")
 
+        #
         # open or create y_file and write the values of the evaluation measurements to it
+        # normalise y before writing it to the file
+        #
         with open(y_filename, "a+") as y_file:
             y_normalised = self.normalise_y(manual_result, auto_evaulation_results)
             y_file.write("{}\n".format(y_normalised))
 
+        #
         # load the x and y values into numpy arrays
         # x values are the settings values
-        # y values are the evaluation deviation values normalised and averaged to one single y value
-        x_raw = np.loadtxt(x_filename)
-
-        print("x_raw:")
-        print(x_raw)
-
-        # normalise x values
-        x = self.normalise_x(x_raw)
-
+        # y values are the percentaged evaluation deviation values normalised and weighted to one single y value
+        #
+        x = np.loadtxt(x_filename)
         y = np.loadtxt(y_filename)
 
-        print("y:")
-        print(y)
-
-        # initialise the kernel (covariance function9 for the BO model
-        # TODO do come up with a "good parameter" for the length_scale, probably 1?
         #
-        kernel_init = gp.kernels.ConstantKernel(0.1) * gp.kernels.RBF(length_scale=0.1)  # find suitable length_scale
+        # initialise the kernel (covariance function) for the BO model
+        #
+        kernel_init = gp.kernels.ConstantKernel(0.1) * gp.kernels.RBF(length_scale=0.1)
 
-        # ## Set up the actual iterative optimisation loop
-        n_offset_bayesopt = 2
-        n_max_iter = 15         # TODO the demo has shown that the BO can optimise in around 15-20 iterations
-        n_current_iter = len(np.atleast_1d(y)) # get the number of data available
-        y_best_bayesopt = np.zeros(n_max_iter)
-        y_best_rnd = np.zeros(n_max_iter)
+        #
+        # Set up the actual iterative optimisation loop
+        #
+        n_offset_bayesopt = 2       # min number of data points to start BO
+        n_max_iter = int(max_iter)
+        n_current_iter = len(np.atleast_1d(y))  # number of data available
 
-        # set the random number generator to a known state
-        np.random.seed(2 * 345 + 10)
+        # TODO set the random number generator to a known state --> not a good idea? will always choose same set and so
+        # np.random.seed(2 * 345 + 10)
 
-        # The candidates we can choose to query next is the available data in the current dataset
-        # ... but it would typically be the full range of values of a parameter in a grid, e.g. [0, 0.1,0.2,0.3,.,1]
-        # for CellProfiler, the setting can have a certain value range and it must be chosen out of this
-        # When x is normalised, it's between 0 and 1
+        ########################################################################
+        # create a suitable candidate set matrix based on the user input       #
+        # take into account the range and steps a settings should be varied in #
+        ########################################################################
 
-        # build 2D array with all possible combinations of the candidates
-        candidates_1D = np.arange(0, 1.001, 0.001)
-
+        #
+        # find out dimensions of x (num_cols)
+        #
         try:
             num_cols = x.shape[1]
         except IndexError:
             num_cols = x.shape[0]
 
-        # assumes 2 or 3 params; PC crashes with 3 params :/
+        #
+        # create a 1D candidate set for each x dimension in the range and with the range steps given by user
+        #
+        candidate_arrays = []
+        for i in range(0, num_cols):
+            a = float(setting_range[i][0])
+            b = float(setting_range[i][1])
+            c = float(range_steps[i])
+
+            candidate = np.arange(a, b, c)
+            candidate_arrays += [candidate]
+
+        print("CANDIDATE 1D ARRAYS:")
+        print(candidate_arrays)
+        print("-" * 50)
+
+        # TODO: building the matrix assumes 2 -4 params; how can I make it more flexible?
+        # Is there another way to create the matrix I need?
+
+        #
+        # create a matrix for either 2, 3 or 4 parameters with all possible combinations of the 1D-arrays
+        #
         if num_cols == 2:
-            c = list(product(candidates_1D, candidates_1D))
+            c = list(product(candidate_arrays[0], candidate_arrays[1]))
+        elif num_cols == 3:
+            c = list(product(candidate_arrays[0], candidate_arrays[1], candidate_arrays[2]))
         else:
-            c = list(product(candidates_1D, candidates_1D, candidates_1D))
+            c = list(product(candidate_arrays[0], candidate_arrays[1], candidate_arrays[2], candidate_arrays[3]))
 
-        candidates_bayesopt = np.asanyarray(c)
+        unstandardised_candidates_array = np.asanyarray(c)
 
-        # Init the data for the bayes opt procedure by choosing the last entry of x
-        x_active_bayesopt = x
+        print("CANDIDATE MATRIX BEFORE STANDARDISATION:")
+        print(unstandardised_candidates_array)
+        print("-" * 50)
+
+        #
+        # correction of numbers in array: standardisation of matrix entries; important step in Machine Learning
+        #
+
+        # 1st step: get mean from each column in matrix
+        mean_candidates = np.mean(unstandardised_candidates_array, axis=0)
+
+        # 2nd step: subtract mean from matrix
+        cand_1 = unstandardised_candidates_array - mean_candidates
+
+        # 3rd step: calculate standard deviation per column
+        st_dev_candidates = np.std(cand_1, axis=0)
+
+        # 4th step: calculate the standardised candidates matrix
+        standardised_candidates = cand_1 / st_dev_candidates
+
+        #
+        # check how many entries (rows) the matrix has
+        #
+        num_entries = np.size(standardised_candidates, axis=0)
+
+        print("MATRIX SIZE")
+        print(num_entries)
+        print("-" * 50)
+
+        #
+        # if candidate matrix is too large, take a subset of 10000 randomly chosen entries;
+        # this ensures that the matrix has <= 10.000 row entries
+        #
+        if num_entries > 10000:
+            np.take(standardised_candidates, np.random.permutation(standardised_candidates.shape[0]),
+                    axis=0, out=standardised_candidates)
+            standardised_candidates = standardised_candidates[:10000]
+
+        candidates_bayesopt = deepcopy(standardised_candidates)
+
+        #
+        # Init the data for the bayes opt procedure; we need to standardise the current x value set as well!
+        #
+        x_1 = x - mean_candidates
+        standardised_x = x_1 / st_dev_candidates
+
+        x_active_bayesopt = standardised_x
+
         print("x_active_bayesopt:")
         print(x_active_bayesopt)
+
         y_active_bayesopt = y
 
-        # is this correct to remove all x from the candidates?
+        # #### DOES NOT WORK YET!!!! ######
+        #
+        # remove the active x from the candidate set
+        #
         # candidates_bayesopt = np.setdiff1d(candidates, x) # TODO how do I remove it form 2D?
-        # Init the data for the random acquisition function by choosing the same random point as for bayes opt
-        x_active_rnd = deepcopy(x_active_bayesopt)
-        candidates_rnd = deepcopy(candidates_bayesopt)
 
-
+        #
         # Run the procedure once and then return the new best x when no. of iterations is < than max_iter
-        if n_current_iter < n_max_iter: # OR when y already 0?
+        #
+        if n_current_iter <= n_max_iter:
             print(" Iter: " + str(n_current_iter))
 
+            #
             # Update Bayes opt active set with one point selected via EI
-            # (of we have exceeded the initial offset period) TODO meaning we need at least two values?
+            # (of we have exceeded the initial offset period)
+            #
             if n_current_iter > n_offset_bayesopt:
-                print("DOING BO NOW as enough data is available")
 
                 ###################################
                 # Bayesian Optimisation Procedure #
                 ###################################
-                # Define and fit the GP model from scratch (using the kernel_bayesopt_init parameters)
+
+                print("EXECUTING BAYESIAN OPTIMISATION PROCEDURE")
+
+                #
+                # Define and fit the GP model (using the kernel_bayesopt_init parameters)
+                #
                 model_bayesopt = gp.GaussianProcessRegressor(kernel=deepcopy(kernel_init),
-                                                             alpha=0.01,
-                                                             # alpha = 0.01; i.e. assume low noise level on the user
-                                                             # feedback, this should be set in a better way
+                                                             alpha=0.01, # 0.01; i.e. assume low noise level on the user
                                                              n_restarts_optimizer=5,
                                                              optimizer=None,
                                                              normalize_y=True, )
-                # fit model with available parameters
+
+                #
+                # fit model with available active x and y parameters
+                #
                 model_bayesopt.fit(x_active_bayesopt, y_active_bayesopt)
 
+                #
                 # Find the currently best value (based on the model, not the active data itself as there could be
                 # a tiny difference)
+                #
                 mu_active_bayesopt, sigma_active_bayesopt = model_bayesopt.predict(x_active_bayesopt,
                                                                                    return_std=True)
                 ind_loss_optimum = np.argmin(mu_active_bayesopt)
                 mu_min_active_bayesopt = mu_active_bayesopt[ind_loss_optimum]
 
+                #
                 # Predict the values for all the possible candidates in the candidate set using the fitted
                 # model_bayesopt
+                #
                 mu_candidates, sigma_candidates = model_bayesopt.predict(candidates_bayesopt, return_std=True)
 
+                #
                 # Compute the expected improvement for all the candidates
-                Z = (mu_min_active_bayesopt - mu_candidates) / sigma_candidates
-                ei = (mu_min_active_bayesopt - mu_candidates) * norm.cdf(Z) + sigma_candidates * norm.pdf(Z)
-                ei[sigma_candidates == 0.0] = 0.0  # Make sure to account for the case where sigma==0 to avoid
+                #
+                z = (mu_min_active_bayesopt - mu_candidates) / sigma_candidates
+                ei = (mu_min_active_bayesopt - mu_candidates) * norm.cdf(z) + sigma_candidates * norm.pdf(z)
+                ei[sigma_candidates == 0.0] = 0.0   # Make sure to account for the case where sigma==0 to avoid
                 # numerical issues (would be NaN otherwise)
 
+                #
                 # Find the candidate with the largest expected improvement... and choose that one to query/include
+                #
                 eimax = np.max(ei)  # maximum expected improvement
                 iii = np.argwhere(eimax == ei)  # find all points with the same maximum value of ei in case there
                 # are more than one (often the case in the beginning)
                 iiii = np.random.randint(np.size(iii, axis=0), size=1)  # ... and choose randomly among them
                 ind_new_candidate_as_index_in_cand_set = [iii[iiii[0]]]
 
-                # Update the indices of the active and candidate set based on the new chosen observation
-                # Note: normally this would involve actually getting the value y from the user and concatenating
-                # the dataset, but since we have a existing dataset we simple work with indices and pick out the y
-                # from the candidate set
-                # TODO what do I need to change here?
+                #
+                # get the new suggested x from the candidates
+                #
+                new_x_standardised = candidates_bayesopt[ind_new_candidate_as_index_in_cand_set]
 
-                print("THIS WAS RUN")
-
-                x_active_bayesopt = candidates_bayesopt[ind_new_candidate_as_index_in_cand_set]
-
+            #
+            # Skip bayes opt until we reach n_offset_bayesopt and select random points for inclusion
+            # (sometimes it is a good idea to include a few random examples)
+            #
             else:
-                # Skip bayes opt until we reach n_offset_bayesopt and select random points for inclusion
-                # (sometimes it is a good idea to include a few random examples)
-                # TODO means for CP that pipeline is run again with random x setting value!!!
-
                 print("RANDOMLY choosing as not enough data is available")
 
                 ii = np.random.randint(np.size(candidates_bayesopt, axis=0), size=1)
 
-                x_active_bayesopt = candidates_bayesopt[ii]
+                new_x_standardised = candidates_bayesopt[ii]
 
-            ####################
-            # Get the y values #
-            ####################
-            # TODO for CP, this would mean we need to run the pipeline with the new x settings parameters!!
-            # TODO does that mean I break out of the loop now and return the new settings (x) values?
-            # TODO THIS IS WHERE I NEED TO GET Y!! Re-Run pipeline
-            # TODO probably save the state of the model object with pickle?
-            # TODO HOW can I re-run the pipeline in the middle of my optimisation loop anyways?
-            # first get the actual x values
-            x_new_normalised = x_active_bayesopt
-            x_norm = np.linalg.norm(x_raw)
-            x_denorm = x_new_normalised * x_norm
-            x_new_rounded = np.around(x_denorm, decimals=3)
+            ###################
+            # Return X values #
+            ###################
 
-            # what to do about the random??? I cannot get both!!!!
-            print("NEW SETTINGS BEFORE RETURN:")
-            print(x_new_rounded)
+            #
+            # now that new setting values X form the candidate set were chosen, they first need to be converted back
+            # by de-standardising them with the standard deviation and mean we have calculated earlier
+            #
 
-            return x_new_rounded
+            next_x_meaned = new_x_standardised * st_dev_candidates
+            next_x = next_x_meaned + mean_candidates
 
-            # problem: am I now writing the x values to the file 2 times? no don't think so, I don't write thm here
+            #
+            # return the X values to adjust the settings and getting a new y value from the user for next BO round
+            #
 
-            # ... iterate until n_max_iter
+            print("NEW SETTINGS:")
+            print(next_x)
 
-        ##############
-        # Last round #
-        ##############
-        # TODO needs adjustment!!!!!!! only operates on the gathered data (with indeces)
-        # include the random version to show the difference
-        elif n_current_iter == n_max_iter:
+            return next_x, y
 
-            for n_it in range(0, n_max_iter):
-                # ## Define the current dataset from indices (the active set, i.e. the observations so far)
-                x_active_rnd = x_active_bayesopt
-                y_active_rnd = y_active_bayesopt
-
-                # The candidate set of parameter settings, i.e. the x values we can possibly query if we choose to do so
-                # TODO for CP this would typically be a large grid of feasible parameter settings values
-                x_candidates_rnd = candidates_bayesopt
-
-                ###################################
-                # Bayesian Optimisation Procedure #
-                ###################################
-                # Define and fit the GP model from scratch (using the kernel_bayesopt_init parameters)
-                model_bayesopt = gp.GaussianProcessRegressor(kernel=deepcopy(kernel_init),
-                                                             alpha=0.01,
-                                                             # alpha = 0.01; i.e. assume low noise level on the user
-                                                             # feedback, this should be set in a better way
-                                                             n_restarts_optimizer=5,
-                                                             optimizer=None,
-                                                             normalize_y=True, )
-                # fit model with available parameters
-                model_bayesopt.fit(x_active_bayesopt, y_active_bayesopt)
-
-                # Update Bayes opt active set with one point selected via EI
-                # (of we have exceeded the initial offset period) TODO meaning we need at least two values?
-
-                # Find the currently best value (based on the model, not the active data itself as there could be
-                # a tiny difference)
-                mu_active_bayesopt, sigma_active_bayesopt = model_bayesopt.predict(x_active_bayesopt,
-                                                                                   return_std=True)
-                ind_loss_optimum = np.argmin(mu_active_bayesopt)
-                mu_min_active_bayesopt = mu_active_bayesopt[ind_loss_optimum]
-
-                # Predict the values for all the possible candidates in the candidate set using the fitted
-                # model_bayesopt
-                mu_candidates, sigma_candidates = model_bayesopt.predict(candidates_bayesopt, return_std=True)
-
-                # Compute the expected improvement for all the candidates
-                Z = (mu_min_active_bayesopt - mu_candidates) / sigma_candidates
-                ei = (mu_min_active_bayesopt - mu_candidates) * norm.cdf(Z) + sigma_candidates * norm.pdf(Z)
-                ei[sigma_candidates == 0.0] = 0.0  # Make sure to account for the case where sigma==0 to avoid
-                # numerical issues (would be NaN otherwise)
-
-                # Find the candidate with the largest expected improvement... and choose that one to query/include
-                eimax = np.max(ei)  # maximum expected improvement # TODO do I need to change this to min?
-                iii = np.argwhere(eimax == ei)  # find all points with the same maximum value of ei in case there
-                # are more than one (often the case in the beginning)
-                iiii = np.random.randint(np.size(iii, axis=0), size=1)  # ... and choose randomly among them
-                ind_new_candidate_as_index_in_cand_set = [iii[iiii[0]]]
-
-                # Update the indices of the active and candidate set based on the new chosen observation
-                # Note: normally this would involve actually getting the value y from the user and concatenating
-                # the dataset, but since we have a existing dataset we simple work with indices and pick out the y
-                # from the candidate set
-                # TODO what do I need to change here?
-
-                x_active_bayesopt = np.union1d(x_active_bayesopt,
-                                                 candidates_bayesopt[ind_new_candidate_as_index_in_cand_set])
-                candidates_bayesopt = np.setdiff1d(candidates_bayesopt,
-                                                       candidates_bayesopt[
-                                                           ind_new_candidate_as_index_in_cand_set])
-
-                #####################################
-                # Random Procedure (for comparison) #
-                #####################################
-                # ##################### Random procedure, i.e. choose points randomly to be included
-                # Update random active set with a randomly chosen x
-                ii = np.random.randint(np.size(candidates_rnd, axis=0), size=1)
-                x_active_rnd = np.union1d(x_active_rnd, candidates_rnd[ii])
-                candidates_rnd = np.setdiff1d(candidates_rnd, candidates_rnd[ii])
-                # TODO what does the following mean?
-                # actually we should fit a model, model_rnd, here based on the ind_active_rnd set and select the best
-                # candidate based on the model...but will give roughly the same results as just picking the max among
-                # the included data
-
-                y_best_bayesopt[n_it] = np.min(y[x_active_bayesopt])
-                y_best_rnd[n_it] = np.min(y[x_active_rnd])
-
-            ###############################################
-            # Analyse results and compute some statistics #
-            ###############################################
-            # Compute the average best value across the repetitions
-            ybest_bayesopt_avg = np.mean(y_best_bayesopt, axis=0)
-            ybest_bayesopt_std = np.std(y_best_bayesopt, axis=0) / 2
-            ybest_rnd_avg = np.mean(y_best_rnd, axis=0)
-            ybest_rnd_std = np.std(ybest_rnd_avg, axis=0) / 2
-            ybestOverall = np.min(y)
-
-            # Visualise the convergence of the bayesopt procedure vs the random one in their quest to reach the best
-            # possible value in the available set
-            # TODO for CellProfiler, visualisation should only be done after Bo hast completely finished?
-            plt.plot([0, n_max_iter], [ybestOverall, ybestOverall], "k-", label="Target")
-            plt.errorbar(range(np.size(ybest_bayesopt_avg)), ybest_bayesopt_avg, yerr=ybest_bayesopt_std,
-                         label="Average BO run  +/- std/2 ")
-            plt.errorbar(range(np.size(ybest_rnd_avg)), ybest_rnd_avg, yerr=ybest_rnd_std,
-                         label="Average Rnd run +/- std/2")
-            plt.legend()
-            plt.xlabel("iterations")
-            plt.ylabel("identified max value")
-            plt.title("convergence")
-            plt.show()
-
-            return 0 # what can I return instead to indicate BO is finished??
+        #
+        # If the max number of iterations is reached, stop B.O.; indicating it with returning 0 and 0 instead of arrays
+        #
+        else:
+            return None, None
 
     #
-    # helper function to normalise the manual and auto evaluation results and return a normalised mean value for y
+    # helper function to normalise the manual and auto evaluation results and return a weighted normalised value for y
     #
     def normalise_y(self, manual_result, auto_evaluation_results):
-        results = np.concatenate([manual_result, auto_evaluation_results])
-        norm_results = np.linalg.norm(results)
 
-        if norm_results == 0:
-            n_new = results
+        if len(manual_result) == 0:
+            print("1 called")
+            auto = auto_evaluation_results
+
+            result_accumulated = float(np.sum(auto)) / np.size(auto)
+
+            result_norm = float(result_accumulated / 100)
+
+            print(result_accumulated)
+            print(result_norm)
+
+        elif len(auto_evaluation_results) == 0:
+            print("2 called")
+            result_norm = float(manual_result) / 100
+
+            print(result_norm)
+
         else:
-            n_new = results / norm_results
+            print("3 called")
+            manual = 0.5 * manual_result
+            auto = 0.5 * auto_evaluation_results
 
-        mean_y = np.mean(n_new)
+            result_accumulated = float(np.sum(manual) + np.sum(auto) / np.size(auto))
 
-        print(n_new)
-        print(mean_y)
+            result_norm = float(result_accumulated / 100)
 
-        return mean_y
+            print(result_accumulated)
+            print(result_norm)
 
-    #
-    # helper function to normalise the values of the x array
-    #
-    def normalise_x(self, x_raw):
-        x_norm = np.linalg.norm(x_raw) # can be used to re-transform the values back to normal later
-        if x_norm == 0:
-            x = x_raw
-        else:
-            x = x_raw / x_norm
+        return result_norm
 
-        x_round = np.around(x, decimals=3)
-
-        return x_round
+        # results = np.concatenate([manual_result, auto_evaluation_results])
+        # print("Results:")
+        # print(results)
+        #
+        # norm_results = np.linalg.norm(results)
+        #
+        # if norm_results == 0:
+        #     n_new = results
+        # else:
+        #     n_new = results / norm_results
+        #
+        # mean_y = np.mean(n_new)
+        #
+        # print(n_new)
+        # print(mean_y)
+        #
+        # return mean_y
 
 
 
