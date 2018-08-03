@@ -34,7 +34,7 @@ BayesianOptimisation
 ===================
 
 **BayesianOptimisation** uses Bayesian Optimisation methods on parameters (settings) chosen from modules placed before 
-this module in the pipeline. It needs either a ManualEvaluation or AutomatedEvaluation or both modules placed beforehand 
+this module in the pipeline. It needs either a ManualEvaluation and/ or AutomatedEvaluation placed upstream 
 in the pipeline. It can only evaluate and operate on the quality measurements of one object at a time. 
 
 The Bayesian Optimisation will only be executed if required quality thresholds/ranges defined in the evaluation 
@@ -141,7 +141,7 @@ No. of evaluation modules before BayesianModule."""
             )
 
         #
-        # The number of parameters to be adjusted by  BayesianModule;
+        # The number of parameters to be adjusted by BayesianModule;
         # necessary for prepare_settings method
         #
         self.count2 = cellprofiler.setting.cellprofiler.setting.Integer(
@@ -150,7 +150,7 @@ No. of evaluation modules before BayesianModule."""
             minval=1,
             maxval=4,
             doc="""\
-No. of settings that should be adjusted by BayesianModule."""
+No. of settings that should be adjusted by BayesianModule. You can choose up to 4 settings."""
         )
 
         #
@@ -210,7 +210,8 @@ recommended iterations are 20 - 200, depending on the problem to be solved. """
         self.spacer3 = cellprofiler.setting.Divider(line=True)
 
         #
-        # Output directory chooser
+        # Output directory chooser;
+        # x and y values of previous Optimisation rounds will be saved in files in this directory
         #
         self.pathname = cellprofiler.setting.DirectoryPath(
             "Output file location",
@@ -236,7 +237,6 @@ Choose the directory where Optimisation data is saved. """
             doc="""\
 If there is previously gathered data saved in a file you can choose to delete it."""
         )
-
 
     #
     # helper function:
@@ -348,10 +348,10 @@ The variation steps within the chosen range for choosing a candidate set."""
         self.parameters.append(group)
 
     #
-    # setting_values are stored as unicode strings in the pipeline.
+    # setting_values are stored as unicode strings in the pipeline file.
     # If the module has settings groups, it needs to be ensured that settings() returns the correct
     # number of settings as saved in the file.
-    # To do so, look at the setting values before settings() is called to determine how many to return.
+    # To do so, look at the number of setting values before settings() is called to determine how many to return.
     # Add groups if necessary.
     #
     def prepare_settings(self, setting_values):
@@ -360,6 +360,7 @@ The variation steps within the chosen range for choosing a candidate set."""
         # No. of measurements in measurements group
         #
         count1 = int(setting_values[1])
+
         #
         # No. of parameters in parameters group
         #
@@ -430,6 +431,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                 result += [param.remover]
         result += [self.add_param_button, self.spacer2, self.refresh_button,
                    self.spacer3, self.pathname, self.spacer5, self.delete_button]
+
         return result
 
     ###################################################################
@@ -490,7 +492,6 @@ The variation steps within the chosen range for choosing a candidate set."""
                 for e in auto_evaluation_results:
                     if float(e) > 0.0:
                         self.optimisation_on = True
-
 
         #
         # get modules and their settings
@@ -560,10 +561,19 @@ The variation steps within the chosen range for choosing a candidate set."""
                                                                                      number_of_params)
 
             #
-            # indicates that max_interations are reached and B.O. is finished
+            # when the bayesian_optimisatino method returns None, this indicates that max_interations
+            # are reached and B.O. is stopped
             #
             if new_target_settings_array is None:
                 self.optimisation_on = False
+
+                workspace.display_data.statistics = []
+                for i in range(number_of_params):
+                    workspace.display_data.statistics.append(
+                        (target_setting_names_list[i], target_setting_values_list[i]))
+
+                workspace.display_data.col_labels = ("Setting Name", "Final Value")
+                workspace.display_data.stop_info = "Max. number of iterations reached. Optimisation stopped."
 
             #
             # adjust the module settings with new x parameters returned form B.O.
@@ -617,6 +627,15 @@ The variation steps within the chosen range for choosing a candidate set."""
             with open(y_absolute_path, "a+") as y_file:
                 y_file.write("{}\n".format(0))
 
+            if self.show_window:
+                workspace.display_data.statistics = []
+                for i in range(number_of_params):
+                    workspace.display_data.statistics.append(
+                        (target_setting_names_list[i], target_setting_values_list[i]))
+
+                workspace.display_data.col_labels = ("Setting Name", "Final Value")
+                workspace.display_data.stop_info = "Quality satisfied. No Optimisation necessary."
+
             print("no optimisation")
 
     #
@@ -656,8 +675,11 @@ The variation steps within the chosen range for choosing a candidate set."""
         # information plotted when BO was not run
         #
         else:
-            figure.set_subplots((1, 1))
-            figure.set_subplot_title("No Optimisation", 0, 0)
+            figure.set_subplots((1, 2))
+            figure.set_subplot_title(workspace.display_data.stop_info, 0, 0)
+            figure.subplot_table(0, 1,
+                                 workspace.display_data.statistics,
+                                 col_labels=workspace.display_data.col_labels)
 
     #
     # helper function:
@@ -723,9 +745,9 @@ The variation steps within the chosen range for choosing a candidate set."""
 
         print("Data deleted")
 
-    #######################################################################
-    # Actual Bayesian optimisation functionality (from Bjørn Sand Jensen) #
-    #######################################################################
+    ##############################################
+    # Actual Bayesian optimisation functionality #
+    ##############################################
 
     def bayesian_optimisation(self, manual_result, auto_evaulation_results,
                               values_list, setting_range, range_steps, num_params):
@@ -972,13 +994,15 @@ The variation steps within the chosen range for choosing a candidate set."""
                 # numerical issues (would be NaN otherwise)
 
                 #
-                # Find the candidate with the largest expected improvement... and choose that one to query/include
+                # Find the candidate with the largest expected improvement and choose that one to query/include
                 #
                 eimax = np.max(ei)  # maximum expected improvement
-                iii = np.argwhere(eimax == ei)  # find all points with the same maximum value of ei in case there
-                # are more than one (often the case in the beginning)
-                # TODO why is it choosing the same int twice???
-                iiii = np.random.randint(np.size(iii, axis=0), size=1)  # ... and choose randomly among them
+
+                #
+                # find all points with the same maximum value of ei in case there are more than one
+                #
+                iii = np.argwhere(eimax == ei)
+                iiii = np.random.randint(np.size(iii, axis=0), size=1)  # choose randomly among them
                 ind_new_candidate_as_index_in_cand_set = [iii[iiii[0]]]
 
                 #
@@ -1005,15 +1029,13 @@ The variation steps within the chosen range for choosing a candidate set."""
             # now that new setting values X form the candidate set were chosen, they first need to be converted back
             # by de-standardising them with the standard deviation and mean we have calculated earlier
             #
-
             next_x_meaned = new_x_standardised * st_dev_candidates
             next_x = next_x_meaned + mean_candidates
 
             #
             # return the X values to adjust the settings and getting a new y value from the user for next BO round
             #
-
-            return next_x, y
+            return next_x, y_active_bayesopt
 
         #
         # If the max number of iterations is reached, stop B.O.; indicating it with returning 0 and 0 instead of arrays
