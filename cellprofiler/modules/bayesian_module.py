@@ -496,7 +496,6 @@ The variation steps within the chosen range for choosing a candidate set."""
         # get modules and their settings
         #
         number_of_params = self.parameters.__len__()
-        print("Number of params: {}".format(number_of_params))
 
         # save operational data in lists; the lists operate with indices;
         # an indices corresponds to a certain module, a setting name in this module and the value of this setting
@@ -557,13 +556,8 @@ The variation steps within the chosen range for choosing a candidate set."""
                                                                                      auto_evaluation_results,
                                                                                      target_setting_values_list,
                                                                                      target_setting_range,
-                                                                                     target_setting_steps)
-
-            print("New_target_setting_array")
-            print(new_target_settings_array)
-
-            print("Current y")
-            print(current_y_values)
+                                                                                     target_setting_steps,
+                                                                                     number_of_params)
 
             #
             # indicates that max_interations are reached and B.O. is finished
@@ -593,8 +587,6 @@ The variation steps within the chosen range for choosing a candidate set."""
                             # smaller than module number, so it needs to take module number of list -1
                             #
                             pipeline.edit_module(target_setting_module_list[i]-1, is_image_set_modification=False)
-                            print("Re-running module")
-                            print(target_setting_module_list[i])
 
                 #
                 # if user wants to show the display-window, save data needed for display in workspace.display_data
@@ -736,7 +728,7 @@ The variation steps within the chosen range for choosing a candidate set."""
     #######################################################################
 
     def bayesian_optimisation(self, manual_result, auto_evaulation_results,
-                              values_list, setting_range, range_steps):
+                              values_list, setting_range, range_steps, num_params):
         #
         # need to load and write available data to files to persist it over the iterations; files contain x and y values
         # define the name of the files where x and y values are written to; names store the module number in case
@@ -791,13 +783,34 @@ The variation steps within the chosen range for choosing a candidate set."""
         # TODO set the random number generator to a known state --> not a good idea? will always choose same set and so
         # np.random.seed(2 * 345 + 10)
 
+        #
+        # set random generator;
+        # use a flexible seed so that each round, different randomised numbers are chosen
+        # this is necessary for the randomly chosen X when not enough data is yet available and
+        # for the random first 10000 entries of the matrix to chose the candidate set from
+        #
+        np.random.seed(3*345 + n_current_iter)
+
         ########################################################################
         # create a suitable candidate set matrix based on the user input       #
         # take into account the range and steps a settings should be varied in #
         ########################################################################
 
         #
-        # find out dimensions of x (num_cols)
+        # account for case with 1D array in first round and several dimension issues
+        #
+        try:
+            num_dimensions = x.ndim
+        except AttributeError:
+            num_dimensions = 0
+
+        if num_dimensions == 1 and num_params == 1:     # otherwise it would also reshape the first round of x 2D
+            x = x.reshape(-1, 1)
+        elif num_dimensions == 0:                       # accounts for x 1D in first round
+            x = np.array([x])
+
+        #
+        # find out columns of x (num_cols)
         #
         try:
             num_cols = x.shape[1]
@@ -816,17 +829,12 @@ The variation steps within the chosen range for choosing a candidate set."""
             candidate = np.arange(a, b, c)
             candidate_arrays += [candidate]
 
-        print("CANDIDATE 1D ARRAYS:")
-        print(candidate_arrays)
-        print("-" * 50)
-
-        # TODO: building the matrix assumes 2 -4 params; how can I make it more flexible?
-        # Is there another way to create the matrix I need?
-
         #
-        # create a matrix for either 2, 3 or 4 parameters with all possible combinations of the 1D-arrays
+        # create a matrix for either 1, 2, 3 or 4 parameters with all possible combinations of the 1D-arrays
         #
-        if num_cols == 2:
+        if num_cols == 1:
+            c = candidate_arrays[0]
+        elif num_cols == 2:
             c = list(product(candidate_arrays[0], candidate_arrays[1]))
         elif num_cols == 3:
             c = list(product(candidate_arrays[0], candidate_arrays[1], candidate_arrays[2]))
@@ -834,10 +842,6 @@ The variation steps within the chosen range for choosing a candidate set."""
             c = list(product(candidate_arrays[0], candidate_arrays[1], candidate_arrays[2], candidate_arrays[3]))
 
         unstandardised_candidates_array = np.asanyarray(c)
-
-        print("CANDIDATE MATRIX BEFORE STANDARDISATION:")
-        print(unstandardised_candidates_array)
-        print("-" * 50)
 
         #
         # correction of numbers in array: standardisation of matrix entries; important step in Machine Learning
@@ -860,10 +864,6 @@ The variation steps within the chosen range for choosing a candidate set."""
         #
         num_entries = np.size(standardised_candidates, axis=0)
 
-        print("MATRIX SIZE")
-        print(num_entries)
-        print("-" * 50)
-
         #
         # if candidate matrix is too large, take a subset of 10000 randomly chosen entries;
         # this ensures that the matrix has <= 10.000 row entries
@@ -879,6 +879,7 @@ The variation steps within the chosen range for choosing a candidate set."""
 
         #
         # account for case with 1D array in first round
+        #
         try:
             x.shape[1]
         except IndexError:
@@ -887,10 +888,18 @@ The variation steps within the chosen range for choosing a candidate set."""
         x_1 = x - mean_candidates
         standardised_x = x_1 / st_dev_candidates
 
+        #
+        # just a rename to make it more clear what this set is used for
+        #
         x_active_bayesopt = standardised_x
 
-        print("x_active_bayesopt:")
-        print(x_active_bayesopt)
+        #
+        # account for the case of x being 1D
+        # needs reshaping before fitting to the model
+        #
+        if num_cols == 1:
+            x_active_bayesopt = x_active_bayesopt.reshape(-1, 1)
+            standardised_candidates = standardised_candidates.reshape(-1, 1)
 
         y_active_bayesopt = y
 
@@ -968,6 +977,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                 eimax = np.max(ei)  # maximum expected improvement
                 iii = np.argwhere(eimax == ei)  # find all points with the same maximum value of ei in case there
                 # are more than one (often the case in the beginning)
+                # TODO why is it choosing the same int twice???
                 iiii = np.random.randint(np.size(iii, axis=0), size=1)  # ... and choose randomly among them
                 ind_new_candidate_as_index_in_cand_set = [iii[iiii[0]]]
 
@@ -1003,9 +1013,6 @@ The variation steps within the chosen range for choosing a candidate set."""
             # return the X values to adjust the settings and getting a new y value from the user for next BO round
             #
 
-            print("NEW SETTINGS:")
-            print(next_x)
-
             return next_x, y
 
         #
@@ -1020,33 +1027,25 @@ The variation steps within the chosen range for choosing a candidate set."""
     def normalise_y(self, manual_result, auto_evaluation_results):
 
         if len(manual_result) == 0:
-            print("1 called")
             auto = auto_evaluation_results
 
             result_accumulated = float(np.sum(auto)) / np.size(auto)
 
             result_norm = float(result_accumulated / 100)
 
-            print(result_accumulated)
-            print(result_norm)
-
         elif len(auto_evaluation_results) == 0:
-            print("2 called")
             result_norm = float(manual_result) / 100
 
-            print(result_norm)
-
         else:
-            print("3 called")
+            #
+            # both evaluation modules get a weighting of 50%
+            #
             manual = 0.5 * manual_result
             auto = 0.5 * auto_evaluation_results
 
             result_accumulated = float(np.sum(manual) + np.sum(auto) / np.size(auto))
 
             result_norm = float(result_accumulated / 100)
-
-            print(result_accumulated)
-            print(result_norm)
 
         return result_norm
 
