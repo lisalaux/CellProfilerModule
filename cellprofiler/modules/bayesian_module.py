@@ -9,13 +9,9 @@
 import numpy as np
 import sklearn.gaussian_process as gp
 from scipy.stats import norm
-import matplotlib.pyplot as plt
 from copy import deepcopy
 from itertools import product
 import os
-
-# import pdb
-# import pdbi
 
 #################################
 #
@@ -30,6 +26,7 @@ import cellprofiler.object
 import cellprofiler.setting
 import cellprofiler.pipeline
 import cellprofiler.workspace
+import cellprofiler.preferences
 
 
 __doc__ = """\
@@ -75,7 +72,7 @@ The basic code for the Bayesian Optimisation procedure was provided by Bjørn Sa
 #
 # Constants
 #
-NUM_FIXED_SETTINGS = 4
+NUM_FIXED_SETTINGS = 5
 NUM_GROUP1_SETTINGS = 1
 NUM_GROUP2_SETTINGS = 4
 
@@ -84,6 +81,8 @@ NUM_GROUP2_SETTINGS = 4
 #
 np.set_printoptions(suppress=True)
 # np.set_printoptions(threshold=np.nan)
+# import pdb
+# import pdbi
 
 
 #
@@ -211,6 +210,23 @@ recommended iterations are 20 - 200, depending on the problem to be solved. """
         self.spacer3 = cellprofiler.setting.Divider(line=True)
 
         #
+        # Output directory chooser
+        #
+        self.pathname = cellprofiler.setting.DirectoryPath(
+            "Output file location",
+            dir_choices=[
+                cellprofiler.preferences.DEFAULT_OUTPUT_FOLDER_NAME,
+                cellprofiler.preferences.DEFAULT_INPUT_FOLDER_NAME,
+                cellprofiler.preferences.ABSOLUTE_FOLDER_NAME,
+                cellprofiler.preferences.DEFAULT_OUTPUT_SUBFOLDER_NAME,
+                cellprofiler.preferences.DEFAULT_INPUT_SUBFOLDER_NAME],
+            doc="""\
+Choose the directory where Optimisation data is saved. """
+        )
+
+        self.spacer5 = cellprofiler.setting.Divider(line=False)
+
+        #
         # Button for deleting existing files storing values from previous runs
         #
         self.delete_button = cellprofiler.setting.DoSomething(
@@ -220,6 +236,7 @@ recommended iterations are 20 - 200, depending on the problem to be solved. """
             doc="""\
 If there is previously gathered data saved in a file you can choose to delete it."""
         )
+
 
     #
     # helper function:
@@ -388,6 +405,7 @@ The variation steps within the chosen range for choosing a candidate set."""
         result += [self.max_iter]
         for p in self.parameters:
             result += [p.module_names, p.parameter_names, p.range, p.steps]
+        result += [self.pathname]
 
         return result
 
@@ -410,7 +428,8 @@ The variation steps within the chosen range for choosing a candidate set."""
             result += [param.module_names, param.parameter_names, param.range, param.steps]
             if hasattr(param, "remover"):
                 result += [param.remover]
-        result += [self.add_param_button, self.spacer2, self.refresh_button, self.spacer3, self.delete_button]
+        result += [self.add_param_button, self.spacer2, self.refresh_button,
+                   self.spacer3, self.pathname, self.spacer5, self.delete_button]
         return result
 
     ###################################################################
@@ -423,12 +442,33 @@ The variation steps within the chosen range for choosing a candidate set."""
     #
     def run(self, workspace):
 
+        #
+        # create absolute pathname for data files to be saved
+        #
+        x_filename = "x_bo_{}.txt".format(self.get_module_num())
+        y_filename = "y_bo_{}.txt".format(self.get_module_num())
+
+        x_absolute_path = "{}/{}".format(self.pathname.get_absolute_path(), x_filename)
+        y_absolute_path = "{}/{}".format(self.pathname.get_absolute_path(), y_filename)
+
+        #
+        # get the measurements made so far from workspace data
+        #
         workspace_measurements = workspace.measurements
 
+        #
+        # get the pipeline object which saves the setting parameters
+        #
         pipeline = workspace.get_pipeline()
 
+        #
+        # assume that optimisation is off
+        #
         self.optimisation_on = False
 
+        #
+        # create empty lists to hold evaluation measurements
+        #
         manual_evaluation_result = []
         auto_evaluation_results = []
 
@@ -451,61 +491,63 @@ The variation steps within the chosen range for choosing a candidate set."""
                     if float(e) > 0.0:
                         self.optimisation_on = True
 
+
+        #
+        # get modules and their settings
+        #
+        number_of_params = self.parameters.__len__()
+        print("Number of params: {}".format(number_of_params))
+
+        # save operational data in lists; the lists operate with indices;
+        # an indices corresponds to a certain module, a setting name in this module and the value of this setting
+        target_setting_module_list = []     # saves module objects
+        target_setting_names_list = []      # saves setting names
+        target_setting_values_list = []     # saves setting values of the selected settings in the module
+        target_setting_range = []           # saves the ranges in which the setting values shall be manipulated
+        target_setting_steps = []           # saves the steps the range can vary
+
+
+        #
+        # get the data for the lists by looping through all settings chosen by the user
+        #
+        for p in self.parameters:
+
+            #
+            # get the module object
+            #
+            name_list = p.module_names.value_text.split(" #")
+            number = int(name_list[1])
+            target_module = pipeline.module(number)
+
+            #
+            # save module number in module_list
+            #
+            target_setting_module_list += [number]
+
+            #
+            # get the setting name
+            #
+            target_setting_name = p.parameter_names.value_text
+
+            for setting in target_module.settings():
+                if setting.get_text() == target_setting_name:
+                    #
+                    # add setting name to Names_list and setting value to values_list
+                    #
+                    target_setting_names_list += [setting.get_text()]
+                    target_setting_values_list += [setting.get_value()]
+
+            #
+            # save range and steps into lists; ranges are saved as a tuple
+            #
+            target_setting_range += [p.range.value]
+            target_setting_steps += [float(p.steps.value)]
+
+
         #
         # start optimisation if quality is not satisfying
         #
         if self.optimisation_on:
-
-            #
-            # get modules and their settings
-            #
-            number_of_params = self.parameters.__len__()
-            print("Number of params: {}".format(number_of_params))
-
-            # save operational data in lists; the lists operate with indices;
-            # an indices corresponds to a certain module, a setting name in this module and the value of this setting
-            target_setting_module_list = []     # saves module objects
-            target_setting_names_list = []      # saves setting names
-            target_setting_values_list = []     # saves setting values of the selected settings in the module
-            target_setting_range = []           # saves the ranges in which the setting values shall be manipulated
-            target_setting_steps = []           # saves the steps the range can vary
-
-
-            #
-            # get the data for the lists by looping through all settings chosen by the user
-            #
-            for p in self.parameters:
-
-                #
-                # get the module object
-                #
-                name_list = p.module_names.value_text.split(" #")
-                number = int(name_list[1])
-                target_module = pipeline.module(number)
-
-                #
-                # save module number in module_list
-                #
-                target_setting_module_list += [number]
-
-                #
-                # get the setting name
-                #
-                target_setting_name = p.parameter_names.value_text
-
-                for setting in target_module.settings():
-                    if setting.get_text() == target_setting_name:
-                        #
-                        # add setting name to Names_list and setting value to values_list
-                        #
-                        target_setting_names_list += [setting.get_text()]
-                        target_setting_values_list += [setting.get_value()]
-
-                #
-                # save range and steps into lists; ranges are saved as a tuple
-                #
-                target_setting_range += [p.range.value]
-                target_setting_steps += [float(p.steps.value)]
 
             #
             # do the bayesian optimisation with a new function that takes the lists and returns new parameters for
@@ -515,8 +557,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                                                                                      auto_evaluation_results,
                                                                                      target_setting_values_list,
                                                                                      target_setting_range,
-                                                                                     target_setting_steps,
-                                                                                     self.max_iter.get_value())
+                                                                                     target_setting_steps)
 
             print("New_target_setting_array")
             print(new_target_settings_array)
@@ -548,21 +589,12 @@ The variation steps within the chosen range for choosing a candidate set."""
 
                             #
                             # inform the pipeline about the edit
-                            # pipeline re-runs from where the module has been changed
+                            # pipeline re-runs from where the module has been changed; mind that pipeline-index is 1
+                            # smaller than module number, so it needs to take module number of list -1
                             #
-                            pipeline.edit_module(target_setting_module_list[i], is_image_set_modification=False)
-
-                # problem: pipeline runs only so many times as it has modules in total
-                # --> need to find a way to re-set count
-                # start_module = pipeline.module(5)
-
-                # sth with debug-mode on if-statement
-                # workspace.set_module(start_module)
-                # workspace.set_disposition(cellprofiler.workspace.DISPOSITION_CONTINUE)
-
-                # does not work with gui
-                # pipelist = cellprofiler.gui.pipelinelistview.PipelineListView()
-                # cellprofiler.gui.pipelinelistview.PipelineListView.set_current_debug_module(pipelist, start_module)
+                            pipeline.edit_module(target_setting_module_list[i]-1, is_image_set_modification=False)
+                            print("Re-running module")
+                            print(target_setting_module_list[i])
 
                 #
                 # if user wants to show the display-window, save data needed for display in workspace.display_data
@@ -577,6 +609,21 @@ The variation steps within the chosen range for choosing a candidate set."""
                     workspace.display_data.y_values = current_y_values
 
         else:
+
+            #
+            # open or create x_file and write the final values of the setting parameters to it
+            #
+            with open(x_absolute_path, "a+") as x_file:
+                for v in target_setting_values_list:
+                    x_file.write("{} ".format(v))
+                x_file.write("\n")
+
+            #
+            # open or create y_file and write 0 to it as indicator that B.O. was not needed as quality is already
+            # satisfying or satisfying after some optimisation has already taken place
+            #
+            with open(y_absolute_path, "a+") as y_file:
+                y_file.write("{}\n".format(0))
 
             print("no optimisation")
 
@@ -667,38 +714,48 @@ The variation steps within the chosen range for choosing a candidate set."""
     # Deletes existing files storing previous values for x and y
     #
     def delete_data(self):
+        #
+        # create absolute pathname
+        #
         x_filename = "x_bo_{}.txt".format(self.get_module_num())
         y_filename = "y_bo_{}.txt".format(self.get_module_num())
 
-        os.remove(x_filename)
-        os.remove(y_filename)
+        x_absolute_path = "{}/{}".format(self.pathname.get_absolute_path(), x_filename)
+        y_absolute_path = "{}/{}".format(self.pathname.get_absolute_path(), y_filename)
+
+        #
+        # remove files
+        #
+        os.remove(x_absolute_path)
+        os.remove(y_absolute_path)
 
         print("Data deleted")
-
-    # def reset_module_counter(self, pipelinelistview):
-    #     pipelinelistview.set_current_debug_module()
-
-    # def reset_debug(self, pipelinecontroller):
-    #     pipelinecontroller.on_debug_continue()
 
     #######################################################################
     # Actual Bayesian optimisation functionality (from Bjørn Sand Jensen) #
     #######################################################################
 
     def bayesian_optimisation(self, manual_result, auto_evaulation_results,
-                              values_list, setting_range, range_steps, max_iter):
+                              values_list, setting_range, range_steps):
         #
         # need to load and write available data to files to persist it over the iterations; files contain x and y values
         # define the name of the files where x and y values are written to; names store the module number in case
         # BO module is used in more than one place of the pipeline
         #
+
+        #
+        # create absolute pathname
+        #
         x_filename = "x_bo_{}.txt".format(self.get_module_num())
         y_filename = "y_bo_{}.txt".format(self.get_module_num())
+
+        x_absolute_path = "{}/{}".format(self.pathname.get_absolute_path(), x_filename)
+        y_absolute_path = "{}/{}".format(self.pathname.get_absolute_path(), y_filename)
 
         #
         # open or create x_file and write the values of the setting parameters to it
         #
-        with open(x_filename, "a+") as x_file:
+        with open(x_absolute_path, "a+") as x_file:
             for v in values_list:
                 x_file.write("{} ".format(v))
             x_file.write("\n")
@@ -707,7 +764,7 @@ The variation steps within the chosen range for choosing a candidate set."""
         # open or create y_file and write the values of the evaluation measurements to it
         # normalise y before writing it to the file
         #
-        with open(y_filename, "a+") as y_file:
+        with open(y_absolute_path, "a+") as y_file:
             y_normalised = self.normalise_y(manual_result, auto_evaulation_results)
             y_file.write("{}\n".format(y_normalised))
 
@@ -716,8 +773,8 @@ The variation steps within the chosen range for choosing a candidate set."""
         # x values are the settings values
         # y values are the percentaged evaluation deviation values normalised and weighted to one single y value
         #
-        x = np.loadtxt(x_filename)
-        y = np.loadtxt(y_filename)
+        x = np.loadtxt(x_absolute_path)
+        y = np.loadtxt(y_absolute_path)
 
         #
         # initialise the kernel (covariance function) for the BO model
@@ -727,9 +784,9 @@ The variation steps within the chosen range for choosing a candidate set."""
         #
         # Set up the actual iterative optimisation loop
         #
-        n_offset_bayesopt = 2       # min number of data points to start BO
-        n_max_iter = int(max_iter)
-        n_current_iter = len(np.atleast_1d(y))  # number of data available
+        n_offset_bayesopt = 2                           # min number of data points to start BO
+        n_max_iter = int(self.max_iter.get_value())     # no. of max iterations
+        n_current_iter = len(np.atleast_1d(y))          # number of data available
 
         # TODO set the random number generator to a known state --> not a good idea? will always choose same set and so
         # np.random.seed(2 * 345 + 10)
@@ -816,11 +873,17 @@ The variation steps within the chosen range for choosing a candidate set."""
                     axis=0, out=standardised_candidates)
             standardised_candidates = standardised_candidates[:10000]
 
-        candidates_bayesopt = deepcopy(standardised_candidates)
-
         #
         # Init the data for the bayes opt procedure; we need to standardise the current x value set as well!
         #
+
+        #
+        # account for case with 1D array in first round
+        try:
+            x.shape[1]
+        except IndexError:
+            x = np.array([x])
+
         x_1 = x - mean_candidates
         standardised_x = x_1 / st_dev_candidates
 
@@ -831,11 +894,18 @@ The variation steps within the chosen range for choosing a candidate set."""
 
         y_active_bayesopt = y
 
-        # #### DOES NOT WORK YET!!!! ######
         #
-        # remove the active x from the candidate set
+        # Remove the standardised active x from the candidate set;
+        # NOTE that it is possible not all active x will be removed due to comparison issues of large floating point
+        # numbers (known numpy issue)
+        # see: https://github.com/numpy/numpy/issues/7784
         #
-        # candidates_bayesopt = np.setdiff1d(candidates, x) # TODO how do I remove it form 2D?
+        sc_rows = standardised_candidates.view([('', standardised_candidates.dtype)] * standardised_candidates.shape[1])
+
+        x_rows = standardised_x.view([('', standardised_x.dtype)] * standardised_x.shape[1])
+
+        candidates_bayesopt = np.setdiff1d(sc_rows, x_rows).view(
+            standardised_candidates.dtype).reshape(-1, standardised_candidates.shape[1])
 
         #
         # Run the procedure once and then return the new best x when no. of iterations is < than max_iter
@@ -979,24 +1049,4 @@ The variation steps within the chosen range for choosing a candidate set."""
             print(result_norm)
 
         return result_norm
-
-        # results = np.concatenate([manual_result, auto_evaluation_results])
-        # print("Results:")
-        # print(results)
-        #
-        # norm_results = np.linalg.norm(results)
-        #
-        # if norm_results == 0:
-        #     n_new = results
-        # else:
-        #     n_new = results / norm_results
-        #
-        # mean_y = np.mean(n_new)
-        #
-        # print(n_new)
-        # print(mean_y)
-        #
-        # return mean_y
-
-
 
