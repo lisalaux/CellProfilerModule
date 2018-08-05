@@ -111,8 +111,8 @@ class BayesianOptimisation(cellprofiler.module.Module):
     def create_settings(self):
         module_explanation = [
             "This module uses BayesianOptimisation on parameters (settings) chosen from modules placed before this "
-            "module in the pipeline. Step 1: Choose the objects which you have evaluated in the evaluation modules. "
-            "The Bayesian module should consider these measures as quality indicators. Step 2: Choose the parameters "
+            "module in the pipeline. Step 1: Choose the object which you have evaluated in the evaluation modules. "
+            "The Bayesian module considers these measures as quality indicators. Step 2: Choose the parameters "
             "(settings) to be adjusted. Bayesian Optimisation will be executed if required quality thresholds/ranges "
             "are not met."]
 
@@ -804,11 +804,6 @@ The variation steps within the chosen range for choosing a candidate set."""
         y = np.loadtxt(y_absolute_path)
 
         #
-        # initialise the kernel (covariance function) for the BO model
-        #
-        kernel_init = gp.kernels.ConstantKernel(0.1) * gp.kernels.RBF(length_scale=0.1)
-
-        #
         # Set up the actual iterative optimisation loop
         #
         n_offset_bayesopt = 2                           # min number of data points to start BO
@@ -974,13 +969,18 @@ The variation steps within the chosen range for choosing a candidate set."""
                 print("EXECUTING BAYESIAN OPTIMISATION PROCEDURE")
 
                 #
+                # initialise the kernel (covariance function) for the BO model
+                #
+                kernel_init = gp.kernels.ConstantKernel(0.1) * gp.kernels.RBF(length_scale=0.1)
+
+                #
                 # Define and fit the GP model (using the kernel_bayesopt_init parameters)
                 #
                 model_bayesopt = gp.GaussianProcessRegressor(kernel=deepcopy(kernel_init),
                                                              alpha=0.01, # 0.01; i.e. assume low noise level on the user
                                                              n_restarts_optimizer=5,
                                                              optimizer=None,
-                                                             normalize_y=True, )
+                                                             normalize_y=True)
 
                 #
                 # fit model with available active x and y parameters
@@ -993,8 +993,8 @@ The variation steps within the chosen range for choosing a candidate set."""
                 #
                 mu_active_bayesopt, sigma_active_bayesopt = model_bayesopt.predict(x_active_bayesopt,
                                                                                    return_std=True)
-                ind_loss_optimum = np.argmin(mu_active_bayesopt)
-                mu_min_active_bayesopt = mu_active_bayesopt[ind_loss_optimum]
+                ind_optimum = np.argmin(mu_active_bayesopt)
+                mu_min_active_bayesopt = mu_active_bayesopt[ind_optimum]
 
                 #
                 # Predict the values for all the possible candidates in the candidate set using the fitted
@@ -1018,9 +1018,9 @@ The variation steps within the chosen range for choosing a candidate set."""
                 #
                 # find all points with the same maximum value of ei in case there are more than one
                 #
-                iii = np.argwhere(eimax == ei)
-                iiii = np.random.randint(np.size(iii, axis=0), size=1)  # choose randomly among them
-                ind_new_candidate_as_index_in_cand_set = [iii[iiii[0]]]
+                i_eimax = np.argwhere(eimax == ei)
+                i_max = np.random.randint(np.size(i_eimax, axis=0), size=1)  # choose randomly among them
+                ind_new_candidate_as_index_in_cand_set = [i_eimax[i_max[0]]]
 
                 #
                 # get the new suggested x from the candidates

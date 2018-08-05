@@ -29,7 +29,7 @@ AutomatedEvaluation
 **AutomatedEvaluation** can be used to automatically evaluate the quality of identified objects
 (eg nuclei, cytoplasm, adhesions). 
 
-By choosing an objects and some of its measurements to be evaluated, the module will check whether these measurements
+By choosing an object and some of its measurements to be evaluated, the module will check whether these measurements
 are in a tolerance range provided in the settings. If object measurement values are outside this range, a 
 percentaged deviation per value will be measured and saved with the object measurements in a numpy array.
 
@@ -270,10 +270,7 @@ deviation will be calculated"""
             for v in measurement_values:
                 if v >= m.range.min and v <= m.range.max:
                     p_dev += 0
-                    # print("passed")
                 else:
-                    # print("not passed")
-
                     if v < m.range.min:
                         deviation = m.range.min - v
                         p_dev += (deviation*100)/m.range.min

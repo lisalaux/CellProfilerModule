@@ -118,8 +118,8 @@ class ManualEvaluation(cellprofiler.module.Module):
 
         module_explanation = [
             "Module for manual evaluation of the quality of the identified objects (eg cytoplasm, adhesions). "
-            "Needs to be placed after IdentifyObjects modules. Choose the main object to rate the quality for first."
-            "You can choose further supporting objects to display. Their qulaity will not be rated."]
+            "Needs to be placed after IdentifyObjects modules. Choose the main object to rate the quality for first. "
+            "You can choose further supporting objects to display. Their quality will not be rated."]
 
         #
         # Notes will appear in the notes-box of the module
