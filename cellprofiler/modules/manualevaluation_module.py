@@ -47,7 +47,9 @@ YES          YES           NO
 Related Modules
 ^^^^^^^^^^^^^^^
 The outlining functionality used in this module was partly taken from  **OverlayOutlines**. It comprises the 
-methods "resize", "draw_outlines", "run_color" and "base_image".
+settings for image, line mode, output image and outline as well as the methods "resize", "draw_outlines", "run_color" 
+and "base_image".
+
 The skeleton code for the "handle_interaction" method was taken from CellProfiler's tutorial modules, example 2c, 
 available at https://github.com/CellProfiler/tutorial/tree/master/cellprofiler-tutorial.
 
@@ -76,6 +78,7 @@ quality of the selected object to a pre-defined minimum quality threshold.
 CATEGORY = 'Evaluation'
 QUALITY = 'ManualQuality'
 FEATURE_NAME = 'Evaluation_ManualQuality'
+
 NUM_FIXED_SETTINGS = 4
 NUM_GROUP_SETTINGS = 2
 
@@ -128,7 +131,7 @@ class ManualEvaluation(cellprofiler.module.Module):
         #
         self.accuracy_threshold = cellprofiler.setting.Integer(
             text="Set min quality threshold (1-10)",
-            value=8,
+            value=9,
             minval=1,
             maxval=10,
             doc="""\
@@ -646,7 +649,7 @@ image can be selected in later modules (for instance, **SaveImages**).
     # Return the feature names if the object_name and category match to the GUI for measurement subscribers
     #
     def get_measurements(self, pipeline, object_name, category):
-        if (object_name == self.outlines[0].objects_name and category == CATEGORY):
+        if object_name == self.outlines[0].objects_name and category == CATEGORY:
             return [QUALITY]
 
         return []

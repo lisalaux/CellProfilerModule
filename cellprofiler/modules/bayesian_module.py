@@ -58,6 +58,7 @@ procedure.
 Technical notes
 ^^^^^^^^^^^^^^
 The max. number of parameters to optimise is currently 4. 
+
 There is a filter set for only making parameters form the IdentifyObjects modules available for optimisation. This 
 can be changed by just removing the filter in the get_module_list helper method.
 
@@ -77,7 +78,7 @@ NUM_GROUP1_SETTINGS = 1
 NUM_GROUP2_SETTINGS = 4
 
 #
-# for testing/ prinout purposes only
+# for testing/ printout purposes only
 #
 np.set_printoptions(suppress=True)
 # np.set_printoptions(threshold=np.nan)
@@ -124,8 +125,11 @@ class BayesianOptimisation(cellprofiler.module.Module):
         # Object identified in upstream IndentifyObjects module; accessible via ObjectNameSubscriber
         #
         self.input_object_name = cellprofiler.setting.ObjectNameSubscriber(
-            "Input object name", cellprofiler.setting.NONE,
-            doc="These are the objects that the module operates on.")
+            "Input object name",
+            cellprofiler.setting.NONE,
+            doc="""\
+These are the objects that the module operates on."""
+        )
 
         #
         # The number of evaluation modules as input for BayesianModule;
@@ -205,7 +209,13 @@ recommended iterations are 20 - 200, depending on the problem to be solved. """
         # This is necessary as the choices_fn function does not work without
         # refreshing the GUI if new groups were added
         #
-        self.refresh_button = cellprofiler.setting.DoSomething("", "Refresh GUI", self.refreshGUI)
+        self.refresh_button = cellprofiler.setting.DoSomething(
+            "",
+            "Refresh GUI",
+            self.refreshGUI,
+            doc = """\
+If the dropdown menus are not updated, you can update them again with this button."""
+        )
 
         self.spacer3 = cellprofiler.setting.Divider(line=True)
 
@@ -610,6 +620,9 @@ The variation steps within the chosen range for choosing a candidate set."""
                     workspace.display_data.col_labels = ("Setting Name", "Old Value", "New Value")
                     workspace.display_data.y_values = current_y_values
 
+        #
+        # no optimisation when quality is already satisfying
+        #
         else:
 
             #
@@ -672,7 +685,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                                  col_labels=workspace.display_data.col_labels)
 
         #
-        # information plotted when BO was not run
+        # information plotted when BO was not run or max_iter was reached
         #
         else:
             figure.set_subplots((1, 2))
@@ -865,6 +878,8 @@ The variation steps within the chosen range for choosing a candidate set."""
 
         unstandardised_candidates_array = np.asanyarray(c)
 
+        print(unstandardised_candidates_array)
+
         #
         # correction of numbers in array: standardisation of matrix entries; important step in Machine Learning
         #
@@ -894,6 +909,8 @@ The variation steps within the chosen range for choosing a candidate set."""
             np.take(standardised_candidates, np.random.permutation(standardised_candidates.shape[0]),
                     axis=0, out=standardised_candidates)
             standardised_candidates = standardised_candidates[:10000]
+
+        print(standardised_candidates)
 
         #
         # Init the data for the bayes opt procedure; we need to standardise the current x value set as well!
@@ -1038,13 +1055,14 @@ The variation steps within the chosen range for choosing a candidate set."""
             return next_x, y_active_bayesopt
 
         #
-        # If the max number of iterations is reached, stop B.O.; indicating it with returning 0 and 0 instead of arrays
+        # If the max number of iterations is reached, stop B.O.; indicating it with returning None instead of arrays
         #
         else:
             return None, None
 
     #
-    # helper function to normalise the manual and auto evaluation results and return a weighted normalised value for y
+    # helper function;
+    # normalise the manual and auto evaluation results and return a weighted normalised value for y
     #
     def normalise_y(self, manual_result, auto_evaluation_results):
 

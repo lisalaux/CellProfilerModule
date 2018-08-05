@@ -63,6 +63,7 @@ Measurements made by this module
 CATEGORY = 'Evaluation'
 DEVIATION = 'Deviation'
 FEATURE_NAME = 'Evaluation_Deviation'
+
 NUM_FIXED_SETTINGS = 1
 NUM_GROUP_SETTINGS = 2
 
@@ -107,8 +108,11 @@ class AutomatedEvaluation(cellprofiler.module.Module):
         # Object identified in upstream IndentifyObjects module; accessible via ObjectNameSubscriber
         #
         self.input_object_name = cellprofiler.setting.ObjectNameSubscriber(
-            "Input object name", cellprofiler.setting.NONE,
-            doc="These are the objects that the module operates on.")
+            "Input object name",
+            cellprofiler.setting.NONE,
+            doc="""\
+These are the objects that the module operates on."""
+        )
 
         #
         # Group of measurements made for the object by a Measurements module
@@ -161,7 +165,7 @@ on the features measured."""
                 minval=00.00,
                 maxval=1000.00,
                 doc="""\
-Set a tolreance range for the measurement. If values of the measurement are not within the range, a percentaged 
+Set a tolerance range for the measurement. If values of the measurement are not within the range, a percentaged 
 deviation will be calculated"""
             )
         )
@@ -331,7 +335,7 @@ deviation will be calculated"""
     # Return the feature names if the object_name and category match to the GUI for measurement subscribers
     #
     def get_measurements(self, pipeline, object_name, category):
-        if (object_name == self.input_object_name and category == CATEGORY):
+        if object_name == self.input_object_name and category == CATEGORY:
             return [DEVIATION]
 
         return []
