@@ -73,7 +73,7 @@ The basic code for the Bayesian Optimisation procedure was provided by Bjørn Sa
 #
 # Constants
 #
-NUM_FIXED_SETTINGS = 5
+NUM_FIXED_SETTINGS = 9
 NUM_GROUP1_SETTINGS = 1
 NUM_GROUP2_SETTINGS = 4
 
@@ -176,6 +176,33 @@ No. of settings that should be adjusted by BayesianModule. You can choose up to 
         self.spacer = cellprofiler.setting.Divider(line=True)
 
         #
+        # The weighting in % for the automated evaluation results
+        #
+        self.weighting_auto = cellprofiler.setting.cellprofiler.setting.Integer(
+            'Weighting of automated evaluation score (%)',
+            50,
+            minval=0,
+            maxval=100,
+            doc="""\
+The weighting of the automated evaluation results in comparison to manual evaluation."""
+        )
+
+        #
+        # The weighting in % for the manual evaluation results
+        #
+        self.weighting_manual = cellprofiler.setting.cellprofiler.setting.Integer(
+            'Weighting of manual evaluation score (%)',
+            50,
+            minval=0,
+            maxval=100,
+            doc="""\
+The weighting of the manual evaluation result in comparison to automated evaluation."""
+        )
+
+
+        self.spacer6 = cellprofiler.setting.Divider(line=True)
+
+        #
         # The maximum number of iterations for the Bayesian Optimisation
         #
         self.max_iter = cellprofiler.setting.cellprofiler.setting.Integer(
@@ -185,7 +212,32 @@ No. of settings that should be adjusted by BayesianModule. You can choose up to 
             maxval=1000,
             doc="""\
 Define the maximum number of iterations the Bayesian Optimisation should run. The minimum number is 2, 
-recommended iterations are 20 - 200, depending on the problem to be solved. """
+recommended iterations are 50 - 200, depending on the problem to be solved. """
+        )
+
+        #
+        # The length scale for the Bayesian Optimisation kernel function
+        #
+        self.length_scale = cellprofiler.setting.cellprofiler.setting.Float(
+            'Length scale for Bayesian Optimisation kernel function',
+            0.1,
+            minval=0,
+            maxval=100,
+            doc="""\
+Define the length scale for the kernel function of the Bayesian Optimisation model. The value influences the
+smoothness of the objective kernel function. A larger value indicates a smoother function."""
+        )
+
+        #
+        # The alpha value for the Bayesian Optimisation model
+        #
+        self.alpha = cellprofiler.setting.cellprofiler.setting.Float(
+            'Alpha for Bayesian Optimisation model',
+            0.01,
+            minval=0,
+            maxval=100,
+            doc="""\
+Define the alpha value for the GaussianProcessRegressor model. A low value indicates low noise in the data."""
         )
 
         self.spacer4 = cellprofiler.setting.Divider(line=True)
@@ -409,11 +461,11 @@ The variation steps within the chosen range for choosing a candidate set."""
     #
     def settings(self):
         result = [self.input_object_name]
-        result += [self.count1]
-        result += [self.count2]
+        result += [self.count1, self.count2]
+        result += [self.weighting_manual, self.weighting_auto]
         for m in self.measurements:
             result += [m.evaluation_measurement]
-        result += [self.max_iter]
+        result += [self.max_iter, self.length_scale, self.alpha]
         for p in self.parameters:
             result += [p.module_names, p.parameter_names, p.range, p.steps]
         result += [self.pathname]
@@ -431,7 +483,8 @@ The variation steps within the chosen range for choosing a candidate set."""
             result += [mod.evaluation_measurement]
             if hasattr(mod, "remover"):
                 result += [mod.remover]
-        result += [self.add_measurement_button, self.spacer, self.max_iter, self.spacer4]
+        result += [self.add_measurement_button, self.spacer, self.weighting_auto, self.weighting_manual, self.spacer6,
+                   self.max_iter, self.length_scale, self.alpha, self.spacer4]
         result += [self.count2]
         for param in self.parameters:
             if hasattr(param, "divider"):
@@ -568,7 +621,11 @@ The variation steps within the chosen range for choosing a candidate set."""
                                                                                      target_setting_values_list,
                                                                                      target_setting_range,
                                                                                      target_setting_steps,
-                                                                                     number_of_params)
+                                                                                     number_of_params,
+                                                                                     self.weighting_auto.value,
+                                                                                     self.weighting_manual.value,
+                                                                                     self.length_scale.value,
+                                                                                     self.alpha.value)
 
             #
             # when the bayesian_optimisatino method returns None, this indicates that max_interations
@@ -763,7 +820,9 @@ The variation steps within the chosen range for choosing a candidate set."""
     ##############################################
 
     def bayesian_optimisation(self, manual_result, auto_evaulation_results,
-                              values_list, setting_range, range_steps, num_params):
+                              values_list, setting_range, range_steps, num_params,
+                              w_auto, w_manual, length_scale, alpha):
+
         #
         # need to load and write available data to files to persist it over the iterations; files contain x and y values
         # define the name of the files where x and y values are written to; names store the module number in case
@@ -792,7 +851,7 @@ The variation steps within the chosen range for choosing a candidate set."""
         # normalise y before writing it to the file
         #
         with open(y_absolute_path, "a+") as y_file:
-            y_normalised = self.normalise_y(manual_result, auto_evaulation_results)
+            y_normalised = self.normalise_y(manual_result, auto_evaulation_results, w_manual, w_auto)
             y_file.write("{}\n".format(y_normalised))
 
         #
@@ -873,7 +932,7 @@ The variation steps within the chosen range for choosing a candidate set."""
 
         unstandardised_candidates_array = np.asanyarray(c)
 
-        print(unstandardised_candidates_array)
+        # print(unstandardised_candidates_array)
 
         #
         # correction of numbers in array: standardisation of matrix entries; important step in Machine Learning
@@ -905,7 +964,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                     axis=0, out=standardised_candidates)
             standardised_candidates = standardised_candidates[:10000]
 
-        print(standardised_candidates)
+        # print(standardised_candidates)
 
         #
         # Init the data for the bayes opt procedure; we need to standardise the current x value set as well!
@@ -971,13 +1030,13 @@ The variation steps within the chosen range for choosing a candidate set."""
                 #
                 # initialise the kernel (covariance function) for the BO model
                 #
-                kernel_init = gp.kernels.ConstantKernel(0.1) * gp.kernels.RBF(length_scale=0.1)
+                kernel_init = gp.kernels.ConstantKernel(0.1) * gp.kernels.RBF(length_scale=length_scale)
 
                 #
                 # Define and fit the GP model (using the kernel_bayesopt_init parameters)
                 #
                 model_bayesopt = gp.GaussianProcessRegressor(kernel=deepcopy(kernel_init),
-                                                             alpha=0.01, # 0.01; i.e. assume low noise level on the user
+                                                             alpha=alpha,
                                                              n_restarts_optimizer=5,
                                                              optimizer=None,
                                                              normalize_y=True)
@@ -1064,7 +1123,7 @@ The variation steps within the chosen range for choosing a candidate set."""
     # helper function;
     # normalise the manual and auto evaluation results and return a weighted normalised value for y
     #
-    def normalise_y(self, manual_result, auto_evaluation_results):
+    def normalise_y(self, manual_result, auto_evaluation_results, w_manual, w_auto):
 
         if len(manual_result) == 0:
             auto = auto_evaluation_results
@@ -1078,10 +1137,10 @@ The variation steps within the chosen range for choosing a candidate set."""
 
         else:
             #
-            # both evaluation modules get a weighting of 50%
+            # both evaluation modules get a user defined weighting
             #
-            manual = 0.5 * manual_result
-            auto = 0.5 * auto_evaluation_results
+            manual = float(w_manual)/100 * manual_result
+            auto = float(w_auto)/100 * auto_evaluation_results
 
             result_accumulated = float(np.sum(manual) + np.sum(auto) / np.size(auto))
 
