@@ -1,5 +1,15 @@
 # coding=utf-8
 
+"""
+Author: Lisa Laux, MSc Information Technology, University of Glasgow
+Date: August 2018
+
+License: Please note that the CellProfiler Software was released under the BSD 3-Clause License by
+the Broad Institute: Copyright © 2003 - 2018 Broad Institute, Inc. All rights reserved. Please refer to
+CellProfiler's LICENSE document for details.
+
+"""
+
 #################################
 #
 # Imports from useful Python libraries
@@ -634,13 +644,43 @@ The variation steps within the chosen range for choosing a candidate set."""
             if new_target_settings_array is None:
                 self.optimisation_on = False
 
-                workspace.display_data.statistics = []
-                for i in range(number_of_params):
-                    workspace.display_data.statistics.append(
-                        (target_setting_names_list[i], target_setting_values_list[i]))
+                #
+                # if user wants to show the display-window, save data needed for display in workspace.display_data
+                #
+                if self.show_window:
+                    #
+                    # we first need to search for the lowest available y and the corresponding X settings
+                    #
+                    x = np.loadtxt(x_absolute_path)
+                    y = np.loadtxt(y_absolute_path)
 
-                workspace.display_data.col_labels = ("Setting Name", "Final Value")
-                workspace.display_data.stop_info = "Max. number of iterations reached. Optimisation stopped."
+                    ind_best = np.argmin(y)
+
+                    #
+                    # account for case with 1D array in first round and several dimension issues
+                    #
+                    try:
+                        num_dimensions = x.ndim
+                    except AttributeError:
+                        num_dimensions = 0
+
+                    if num_dimensions == 1 and number_of_params == 1:  # otherwise it would also reshape the first round of x 2D
+                        x = x.reshape(-1, 1)
+                    elif num_dimensions == 0:  # accounts for x 1D in first round
+                        x = np.array([x])
+                    elif np.size(y) == 1:
+                        x = np.array([x])
+
+                    x_best = x[ind_best]
+                    x_best = x_best.flatten()
+
+                    workspace.display_data.statistics = []
+                    for i in range(number_of_params):
+                        workspace.display_data.statistics.append(
+                            (target_setting_names_list[i], x_best[i], target_setting_values_list[i]))
+
+                    workspace.display_data.col_labels = ("Setting Name", "Best Value so far", "Final Value")
+                    workspace.display_data.stop_info = "Max. number of iterations reached. Optimisation stopped."
 
             #
             # adjust the module settings with new x parameters returned form B.O.
@@ -669,12 +709,39 @@ The variation steps within the chosen range for choosing a candidate set."""
                 # if user wants to show the display-window, save data needed for display in workspace.display_data
                 #
                 if self.show_window:
+                    #
+                    # we first need to search for the lowest available y and the corresponding X settings
+                    #
+                    x = np.loadtxt(x_absolute_path)
+                    y = np.loadtxt(y_absolute_path)
+
+                    ind_best = np.argmin(y)
+
+                    #
+                    # account for case with 1D array in first round and several dimension issues
+                    #
+                    try:
+                        num_dimensions = x.ndim
+                    except AttributeError:
+                        num_dimensions = 0
+
+                    if num_dimensions == 1 and number_of_params == 1:  # otherwise it would also reshape the first round of x 2D
+                        x = x.reshape(-1, 1)
+                    elif num_dimensions == 0:  # accounts for x 1D in first round
+                        x = np.array([x])
+                    elif np.size(y) == 1:
+                        x = np.array([x])
+
+                    x_best = x[ind_best]
+                    x_best = x_best.flatten()
+
                     workspace.display_data.statistics = []
                     for i in range(number_of_params):
                         workspace.display_data.statistics.append(
-                            (target_setting_names_list[i], target_setting_values_list[i], new_target_settings[i]))
+                            (target_setting_names_list[i], x_best[i], target_setting_values_list[i],
+                             new_target_settings[i]))
 
-                    workspace.display_data.col_labels = ("Setting Name", "Old Value", "New Value")
+                    workspace.display_data.col_labels = ("Setting Name", "Best Value so far", "Old Value", "New Value")
                     workspace.display_data.y_values = current_y_values
 
         #
@@ -703,7 +770,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                     workspace.display_data.statistics.append(
                         (target_setting_names_list[i], target_setting_values_list[i]))
 
-                workspace.display_data.col_labels = ("Setting Name", "Final Value")
+                workspace.display_data.col_labels = ("Setting Name", "Final Best Value")
                 workspace.display_data.stop_info = "Quality satisfied. No Optimisation necessary."
 
             print("no optimisation")
@@ -869,9 +936,6 @@ The variation steps within the chosen range for choosing a candidate set."""
         n_max_iter = int(self.max_iter.get_value())     # no. of max iterations
         n_current_iter = len(np.atleast_1d(y))          # number of data available
 
-        # TODO set the random number generator to a known state --> not a good idea? will always choose same set and so
-        # np.random.seed(2 * 345 + 10)
-
         #
         # set random generator;
         # use a flexible seed so that each round, different randomised numbers are chosen
@@ -986,6 +1050,7 @@ The variation steps within the chosen range for choosing a candidate set."""
         #
         x_active_bayesopt = standardised_x
 
+
         #
         # account for the case of x being 1D
         # needs reshaping before fitting to the model
@@ -997,17 +1062,9 @@ The variation steps within the chosen range for choosing a candidate set."""
         y_active_bayesopt = y
 
         #
-        # Remove the standardised active x from the candidate set;
-        # NOTE that it is possible not all active x will be removed due to comparison issues of large floating point
-        # numbers (known numpy issue)
-        # see: https://github.com/numpy/numpy/issues/7784
+        # just a rename to make it more clear what this set is used for
         #
-        sc_rows = standardised_candidates.view([('', standardised_candidates.dtype)] * standardised_candidates.shape[1])
-
-        x_rows = standardised_x.view([('', standardised_x.dtype)] * standardised_x.shape[1])
-
-        candidates_bayesopt = np.setdiff1d(sc_rows, x_rows).view(
-            standardised_candidates.dtype).reshape(-1, standardised_candidates.shape[1])
+        candidates_bayesopt = standardised_candidates
 
         #
         # Run the procedure once and then return the new best x when no. of iterations is < than max_iter
@@ -1033,12 +1090,21 @@ The variation steps within the chosen range for choosing a candidate set."""
                 kernel_init = gp.kernels.ConstantKernel(0.1) * gp.kernels.RBF(length_scale=length_scale)
 
                 #
+                # after 20 iterations there is enough data to use the optimizer to optimize the kernel's
+                # hyperparameters
+                #
+                optimizer = None
+
+                if n_current_iter >= 20:
+                    optimizer = "fmin_l_bfgs_b"
+
+                #
                 # Define and fit the GP model (using the kernel_bayesopt_init parameters)
                 #
                 model_bayesopt = gp.GaussianProcessRegressor(kernel=deepcopy(kernel_init),
                                                              alpha=alpha,
                                                              n_restarts_optimizer=5,
-                                                             optimizer=None,
+                                                             optimizer=optimizer,
                                                              normalize_y=True)
 
                 #

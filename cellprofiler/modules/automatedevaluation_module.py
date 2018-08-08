@@ -1,5 +1,15 @@
 # coding=utf-8
 
+"""
+Author: Lisa Laux, MSc Information Technology, University of Glasgow
+Date: August 2018
+
+License: Please note that the CellProfiler Software was released under the BSD 3-Clause License by
+the Broad Institute: Copyright © 2003 - 2018 Broad Institute, Inc. All rights reserved. Please refer to
+CellProfiler's LICENSE document for details.
+
+"""
+
 #################################
 #
 # Imports from useful Python libraries
