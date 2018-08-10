@@ -996,10 +996,12 @@ The variation steps within the chosen range for choosing a candidate set."""
 
         unstandardised_candidates_array = np.asanyarray(c)
 
-        # print(unstandardised_candidates_array)
-
         #
-        # correction of numbers in array: standardisation of matrix entries; important step in Machine Learning
+        # initiate the correction of numbers in array:
+        # standardisation of matrix entries; important step in Machine Learning
+        # we need to calculate the mean and standard deviation of *all* candidates available (which includes the
+        # already gathered X)
+        # the numbers are used for later calculations
         #
 
         # 1st step: get mean from each column in matrix
@@ -1011,31 +1013,29 @@ The variation steps within the chosen range for choosing a candidate set."""
         # 3rd step: calculate standard deviation per column
         st_dev_candidates = np.std(cand_1, axis=0)
 
-        # 4th step: calculate the standardised candidates matrix
-        standardised_candidates = cand_1 / st_dev_candidates
-
         #
-        # check how many entries (rows) the matrix has
+        # check how many entries (rows) the candidate matrix has
         #
-        num_entries = np.size(standardised_candidates, axis=0)
+        num_entries = np.size(unstandardised_candidates_array, axis=0)
+        print("NUMBER OF ALL CANDIDATES")
+        print(num_entries)
 
         #
         # if candidate matrix is too large, take a subset of 10000 randomly chosen entries;
         # this ensures that the matrix has <= 10.000 row entries
         #
         if num_entries > 10000:
-            np.take(standardised_candidates, np.random.permutation(standardised_candidates.shape[0]),
-                    axis=0, out=standardised_candidates)
-            standardised_candidates = standardised_candidates[:10000]
+            np.take(unstandardised_candidates_array, np.random.permutation(unstandardised_candidates_array.shape[0]),
+                    axis=0, out=unstandardised_candidates_array)
+            unstandardised_candidates_array = unstandardised_candidates_array[:10000]
 
-        # print(standardised_candidates)
-
-        #
-        # Init the data for the bayes opt procedure; we need to standardise the current x value set as well!
-        #
+        #############################################
+        # Init the data for the bayes opt procedure #
+        #############################################
 
         #
-        # account for case with 1D array in first round
+        # we need to standardise the current set of x values with the calculated mean and standard deviation
+        # we need to account for case with 1D array in first round
         #
         try:
             x.shape[1]
@@ -1043,13 +1043,62 @@ The variation steps within the chosen range for choosing a candidate set."""
             x = np.array([x])
 
         x_1 = x - mean_candidates
-        standardised_x = x_1 / st_dev_candidates
+        x_active_bayesopt = x_1 / st_dev_candidates
 
         #
-        # just a rename to make it more clear what this set is used for
+        # we need to remove the unstandardised x from unstandardised candidates and then standardise the remaining
+        # candidates!
+        # as comparing floating point numbers and arrays often results in faulty results, we need to transform
+        # the floating point numbers into integers; the numbers used in CP do not have more than 3 decimals
         #
-        x_active_bayesopt = standardised_x
 
+        #
+        # we need to account for case with 1D array for unstandardised candidates
+        #
+        try:
+            unstandardised_candidates_array.shape[1]
+        except IndexError:
+            unstandardised_candidates_array = np.array([unstandardised_candidates_array])
+
+        #
+        # transform numbers into integers by multiplying them with 1000
+        #
+        mul_std_cand = np.multiply(unstandardised_candidates_array, 1000)
+        mul_std_cand = mul_std_cand.astype(int)
+        mul_x = np.multiply(x, 1000)
+        mul_x = mul_x.astype(int)
+
+        #
+        # transform arrays into 1D and use np.setdiff1d to extract all rows that are in the unstandardised candidates
+        # but not in x
+        #
+        c_rows = mul_std_cand.view([('', mul_std_cand.dtype)] * mul_std_cand.shape[1])
+        x_rows = mul_x.view([('', mul_x.dtype)] * mul_x.shape[1])
+
+        new_mul_std_candidates = np.setdiff1d(c_rows, x_rows).view(
+            mul_std_cand.dtype).reshape(-1, mul_std_cand.shape[1])
+
+        #
+        # transform the new array's numbers back into the original floating point numbers by dividing them by 1000
+        #
+        new_mul_std_candidates = new_mul_std_candidates.astype(float)
+        new_candidates_bayesopt = np.divide(new_mul_std_candidates, 1000)   # these are unstandardised and without x
+
+        #
+        # now standardise remaining set with the calculated mean and standard deviation
+        #
+        cand_2 = new_candidates_bayesopt - mean_candidates
+        candidates_bayesopt = cand_2 / st_dev_candidates
+
+        # print("STANDARDISED CANDIDATES WITHOUT X")
+        # print(candidates_bayesopt)
+
+        #
+        # check how many entries (rows) the matrix has
+        #
+        num_entries = np.size(candidates_bayesopt, axis=0)
+        # print("SIZE OF CANDIDATES WITHOUT X:")
+        # print(num_entries)
 
         #
         # account for the case of x being 1D
@@ -1057,14 +1106,12 @@ The variation steps within the chosen range for choosing a candidate set."""
         #
         if num_cols == 1:
             x_active_bayesopt = x_active_bayesopt.reshape(-1, 1)
-            standardised_candidates = standardised_candidates.reshape(-1, 1)
+            candidates_bayesopt = candidates_bayesopt.reshape(-1, 1)
 
+        #
+        # load the already available points y
+        #
         y_active_bayesopt = y
-
-        #
-        # just a rename to make it more clear what this set is used for
-        #
-        candidates_bayesopt = standardised_candidates
 
         #
         # Run the procedure once and then return the new best x when no. of iterations is < than max_iter
@@ -1097,6 +1144,7 @@ The variation steps within the chosen range for choosing a candidate set."""
 
                 if n_current_iter >= 20:
                     optimizer = "fmin_l_bfgs_b"
+                    # print("optimiser on")
 
                 #
                 # Define and fit the GP model (using the kernel_bayesopt_init parameters)
@@ -1160,7 +1208,6 @@ The variation steps within the chosen range for choosing a candidate set."""
                 print("RANDOMLY choosing as not enough data is available")
 
                 ii = np.random.randint(np.size(candidates_bayesopt, axis=0), size=1)
-
                 new_x_standardised = candidates_bayesopt[ii]
 
             ###################
@@ -1175,9 +1222,13 @@ The variation steps within the chosen range for choosing a candidate set."""
             next_x = next_x_meaned + mean_candidates
 
             #
-            # return the X values to adjust the settings and getting a new y value from the user for next BO round
+            # return the X values to adjust the settings and getting a new y value from the user for next BO round;
+            # round values to account for any floating point decimal inaccuracies caused earlier;
+            # the CP settings usually only take integers or floating point numbers with up to 3 decimals
             #
-            return next_x, y_active_bayesopt
+            next_x_round = np.around(next_x, decimals=3)
+
+            return next_x_round, y_active_bayesopt
 
         #
         # If the max number of iterations is reached, stop B.O.; indicating it with returning None instead of arrays
