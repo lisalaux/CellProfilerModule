@@ -359,14 +359,13 @@ image can be selected in later modules (for instance, **SaveImages**).
         #
         deviation = []
 
-        # print("Result: "+str(result))
+        # print("User rating: "+str(result))
 
         #
         # determine whether the user result is lower than the minimum quality threshold;
         # if so, calculate the percentaged deviation value and save it to deviation array
         #
         if int(result) < int(self.accuracy_threshold.value):
-            # print("not passed")
             dev = int(self.accuracy_threshold.value) - int(result)
             p_dev = (dev * 100) / int(self.accuracy_threshold.value)
             # print("p_dev:")
@@ -374,13 +373,13 @@ image can be selected in later modules (for instance, **SaveImages**).
             deviation += [p_dev]
 
         else:
-            # print("passed")
             deviation += [0]
 
         #
         # transform deviation to a numpy array
         #
         dev_array = numpy.array(deviation)
+
         # print(dev_array)
 
         #

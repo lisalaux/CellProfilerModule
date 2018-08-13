@@ -638,7 +638,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                                                                                      self.alpha.value)
 
             #
-            # when the bayesian_optimisatino method returns None, this indicates that max_interations
+            # when the bayesian_optimisation method returns None, this indicates that max_iterations
             # are reached and B.O. is stopped
             #
             if new_target_settings_array is None:
@@ -664,7 +664,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                     except AttributeError:
                         num_dimensions = 0
 
-                    if num_dimensions == 1 and number_of_params == 1:  # otherwise it would also reshape the first round of x 2D
+                    if num_dimensions == 1 and number_of_params == 1:  # otherwise would also reshape 1st round of x 2D
                         x = x.reshape(-1, 1)
                     elif num_dimensions == 0:  # accounts for x 1D in first round
                         x = np.array([x])
@@ -706,6 +706,11 @@ The variation steps within the chosen range for choosing a candidate set."""
                             pipeline.edit_module(target_setting_module_list[i]-1, is_image_set_modification=False)
 
                 #
+                # ensure that CP is running the pipeline from the first module that was modified
+                #
+                pipeline.edit_module(min(target_setting_module_list) - 1, is_image_set_modification=False)
+
+                #
                 # if user wants to show the display-window, save data needed for display in workspace.display_data
                 #
                 if self.show_window:
@@ -725,7 +730,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                     except AttributeError:
                         num_dimensions = 0
 
-                    if num_dimensions == 1 and number_of_params == 1:  # otherwise it would also reshape the first round of x 2D
+                    if num_dimensions == 1 and number_of_params == 1:  # otherwise would also reshape 1st round of x 2D
                         x = x.reshape(-1, 1)
                     elif num_dimensions == 0:  # accounts for x 1D in first round
                         x = np.array([x])
@@ -773,7 +778,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                 workspace.display_data.col_labels = ("Setting Name", "Final Best Value")
                 workspace.display_data.stop_info = "Quality satisfied. No Optimisation necessary."
 
-            print("no optimisation")
+            print("NO OPTIMISATION")
 
     #
     # if user wants to show the display window during pipeline execution, this method is called by UI thread
@@ -826,8 +831,13 @@ The variation steps within the chosen range for choosing a candidate set."""
         modules = pipeline.modules()
         module_list = []
         for module in modules:
-            if "Identify" in module.module_name:
-                module_list.append("{} #{}".format(module.module_name, module.get_module_num()))
+            #
+            # there is a filter for only using IdentifyObjects modules; the filter can be switchen on by uncommenting
+            # the following two lines and commenting the 3rd line
+            #
+            # if "Identify" in module.module_name:
+            #     module_list.append("{} #{}".format(module.module_name, module.get_module_num()))
+            module_list.append("{} #{}".format(module.module_name, module.get_module_num()))
         return module_list
 
     #
@@ -982,6 +992,9 @@ The variation steps within the chosen range for choosing a candidate set."""
             candidate = np.arange(a, b, c)
             candidate_arrays += [candidate]
 
+        # print("CANDIDATE ARRAYS")
+        # print(candidate_arrays)
+
         #
         # create a matrix for either 1, 2, 3 or 4 parameters with all possible combinations of the 1D-arrays
         #
@@ -995,6 +1008,12 @@ The variation steps within the chosen range for choosing a candidate set."""
             c = list(product(candidate_arrays[0], candidate_arrays[1], candidate_arrays[2], candidate_arrays[3]))
 
         unstandardised_candidates_array = np.asanyarray(c)
+
+        #
+        # if x is 1D, candidates array needs to be re-shaped
+        #
+        if num_cols == 1:
+            unstandardised_candidates_array = unstandardised_candidates_array.reshape(-1, 1)
 
         #
         # initiate the correction of numbers in array:
@@ -1017,8 +1036,8 @@ The variation steps within the chosen range for choosing a candidate set."""
         # check how many entries (rows) the candidate matrix has
         #
         num_entries = np.size(unstandardised_candidates_array, axis=0)
-        print("NUMBER OF ALL CANDIDATES")
-        print(num_entries)
+        # print("NUMBER OF ALL CANDIDATES")
+        # print(num_entries)
 
         #
         # if candidate matrix is too large, take a subset of 10000 randomly chosen entries;
@@ -1045,6 +1064,9 @@ The variation steps within the chosen range for choosing a candidate set."""
         x_1 = x - mean_candidates
         x_active_bayesopt = x_1 / st_dev_candidates
 
+        # print("STANDARDISED X")
+        # print(x_active_bayesopt)
+
         #
         # we need to remove the unstandardised x from unstandardised candidates and then standardise the remaining
         # candidates!
@@ -1059,6 +1081,7 @@ The variation steps within the chosen range for choosing a candidate set."""
             unstandardised_candidates_array.shape[1]
         except IndexError:
             unstandardised_candidates_array = np.array([unstandardised_candidates_array])
+            unstandardised_candidates_array = unstandardised_candidates_array.reshape(-1, 1)
 
         #
         # transform numbers into integers by multiplying them with 1000
@@ -1094,19 +1117,19 @@ The variation steps within the chosen range for choosing a candidate set."""
         # print(candidates_bayesopt)
 
         #
-        # check how many entries (rows) the matrix has
-        #
-        num_entries = np.size(candidates_bayesopt, axis=0)
-        # print("SIZE OF CANDIDATES WITHOUT X:")
-        # print(num_entries)
-
-        #
         # account for the case of x being 1D
         # needs reshaping before fitting to the model
         #
         if num_cols == 1:
             x_active_bayesopt = x_active_bayesopt.reshape(-1, 1)
             candidates_bayesopt = candidates_bayesopt.reshape(-1, 1)
+
+        #
+        # check how many entries (rows) the matrix has now (testing only)
+        #
+        num_entries1 = np.size(candidates_bayesopt, axis=0)
+        # print("SIZE OF CANDIDATES WITHOUT X")
+        # print(num_entries1)
 
         #
         # load the already available points y
@@ -1205,7 +1228,7 @@ The variation steps within the chosen range for choosing a candidate set."""
             # (sometimes it is a good idea to include a few random examples)
             #
             else:
-                print("RANDOMLY choosing as not enough data is available")
+                print("RANDOMLY choosing new X as not enough data is available")
 
                 ii = np.random.randint(np.size(candidates_bayesopt, axis=0), size=1)
                 new_x_standardised = candidates_bayesopt[ii]
@@ -1226,7 +1249,11 @@ The variation steps within the chosen range for choosing a candidate set."""
             # round values to account for any floating point decimal inaccuracies caused earlier;
             # the CP settings usually only take integers or floating point numbers with up to 3 decimals
             #
+
             next_x_round = np.around(next_x, decimals=3)
+
+            # print("NEXT X")
+            # print(next_x_round)
 
             return next_x_round, y_active_bayesopt
 
@@ -1234,6 +1261,7 @@ The variation steps within the chosen range for choosing a candidate set."""
         # If the max number of iterations is reached, stop B.O.; indicating it with returning None instead of arrays
         #
         else:
+            print("MAX ITERATIONS REACHED")
             return None, None
 
     #

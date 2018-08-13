@@ -29,7 +29,7 @@ class TestManualEvaluation(unittest.TestCase):
     def test_01_can_load(self):
         self.assertFalse(self.make_instance() is None)
 
-    '''Test if settings are created'''
+    '''Test if settings values are created correctly'''
     def test_02_create_settings(self):
         module = self.make_instance()
         module.accuracy_threshold.value = 8
@@ -103,7 +103,7 @@ class TestManualEvaluation(unittest.TestCase):
         #
         # Create an object set and some objects for the set (randomly)
         # Pick a bunch of random points, dilate them using the distance
-        # transform and then label the result.
+        # transform and then label the result
         #
         object_set = cpo.ObjectSet()
         r = np.random.RandomState()
@@ -151,6 +151,7 @@ class TestManualEvaluation(unittest.TestCase):
 
         #
         # SKIP CALLING THE INTERACTION HANDLER AS NOT APPROPRIATE FOR THE TESTS
+        #
 
         # set result instead
         result = 9

@@ -269,7 +269,7 @@ deviation will be calculated"""
             #
             measurement_values = workspace_measurements.get_current_measurement(self.input_object_name.value_text,
                                                                                 m.measurement.value_text)
-
+            # print("All measurements:")
             # print(measurement_values)
 
             #
@@ -300,14 +300,13 @@ deviation will be calculated"""
                 deviations += [0]
             else:
                 deviations += [p_dev/len(measurement_values)]
-            # print("deviations:")
-            # print(deviations)
 
         #
         # transform deviations to a numpy array after all separate deviations for different measurements m have been
         # collected
         #
         dev_array = numpy.array(deviations)
+
         # print(dev_array)
 
         #

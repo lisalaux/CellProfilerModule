@@ -27,7 +27,7 @@ class TestAutomatedEvaluation(unittest.TestCase):
     def test_01_can_load(self):
         self.assertFalse(self.make_instance() is None)
 
-    '''Test if settings are created'''
+    '''Test if settings values are created correctly'''
     def test_02_create_settings(self):
         module = self.make_instance()
         module.input_object_name.value = INPUT_OBJECT_NAME
