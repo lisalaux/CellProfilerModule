@@ -1127,7 +1127,7 @@ The variation steps within the chosen range for choosing a candidate set."""
         #
         # check how many entries (rows) the matrix has now (testing only)
         #
-        num_entries1 = np.size(candidates_bayesopt, axis=0)
+        # num_entries1 = np.size(candidates_bayesopt, axis=0)
         # print("SIZE OF CANDIDATES WITHOUT X")
         # print(num_entries1)
 

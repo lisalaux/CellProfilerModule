@@ -173,7 +173,7 @@ on the features measured."""
                 'Set tolerance range',
                 (00.00, 100.00),
                 minval=00.00,
-                maxval=1000.00,
+                maxval=100000.00,
                 doc="""\
 Set a tolerance range for the measurement. If values of the measurement are not within the range, a percentaged 
 deviation will be calculated"""
