@@ -219,7 +219,7 @@ The weighting of the manual evaluation result in comparison to automated evaluat
             'Max. iterations for Bayesian Optimisation',
             150,
             minval=2,
-            maxval=1000,
+            maxval=10000,
             doc="""\
 Define the maximum number of iterations the Bayesian Optimisation should run. The minimum number is 2, 
 recommended iterations are 50 - 200, depending on the problem to be solved. """
@@ -232,7 +232,7 @@ recommended iterations are 50 - 200, depending on the problem to be solved. """
             'Length scale for Bayesian Optimisation kernel function',
             0.1,
             minval=0,
-            maxval=100,
+            maxval=1000,
             doc="""\
 Define the length scale for the kernel function of the Bayesian Optimisation model. The value influences the
 smoothness of the objective kernel function. A larger value indicates a smoother function."""
@@ -245,7 +245,7 @@ smoothness of the objective kernel function. A larger value indicates a smoother
             'Alpha for Bayesian Optimisation model',
             0.01,
             minval=0,
-            maxval=100,
+            maxval=1000,
             doc="""\
 Define the alpha value for the GaussianProcessRegressor model. A low value indicates low noise in the data."""
         )
@@ -1165,7 +1165,7 @@ The variation steps within the chosen range for choosing a candidate set."""
                 #
                 optimizer = None
 
-                if n_current_iter >= 20:
+                if n_current_iter >= 10:
                     optimizer = "fmin_l_bfgs_b"
                     # print("optimiser on")
 
