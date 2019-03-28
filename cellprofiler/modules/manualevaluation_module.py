@@ -522,6 +522,7 @@ image can be selected in later modules (for instance, **SaveImages**).
                 b = event.GetEventObject().GetLabel()
                 self.quality = b
                 dlg.EndModal(1)
+                plt.close(figure)
 
             button_1.Bind(wx.EVT_BUTTON, on_button)
             button_2.Bind(wx.EVT_BUTTON, on_button)
