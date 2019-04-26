@@ -17,6 +17,9 @@ CellProfiler's LICENSE document for details.
 #################################
 
 import numpy
+import skimage.color
+import skimage.segmentation
+import skimage.util
 
 #################################
 #
@@ -74,7 +77,7 @@ CATEGORY = 'Evaluation'
 DEVIATION = 'Deviation'
 FEATURE_NAME = 'Evaluation_Deviation'
 
-NUM_FIXED_SETTINGS = 1
+NUM_FIXED_SETTINGS = 4
 NUM_GROUP_SETTINGS = 2
 
 
@@ -122,6 +125,52 @@ class AutomatedEvaluation(cellprofiler.module.Module):
             cellprofiler.setting.NONE,
             doc="""\
 These are the objects that the module operates on."""
+        )
+
+        #
+        # ImageNameSubscriber provides all available images in the image set
+        # The image is needed to display the outlines of an object on the image to the user
+        #
+        self.image_name = cellprofiler.setting.ImageNameSubscriber(
+            "Select image on which to display outlines",
+            cellprofiler.setting.NONE,
+            doc="""\
+        Choose the image to serve as the background for the outlines. You can
+        choose from images that were loaded or created by modules previous to
+        this one.
+        """
+        )
+
+        #
+        # Choose a mode for outlining the objects on the image
+        #
+        self.line_mode = cellprofiler.setting.Choice(
+            "How to outline",
+            ["Inner", "Outer", "Thick"],
+            value="Inner",
+            doc="""\
+        Specify how to mark the boundaries around an object:
+
+        -  *Inner:* outline the pixels just inside of objects, leaving
+           background pixels untouched.
+        -  *Outer:* outline pixels in the background around object boundaries.
+           When two objects touch, their boundary is also marked.
+        -  *Thick:* any pixel not completely surrounded by pixels of the same
+           label is marked as a boundary. This results in boundaries that are 2
+           pixels thick.
+        """
+        )
+
+        #
+        # Provide a name for the created output image (which can be saved)
+        #
+        self.output_image_name = cellprofiler.setting.ImageNameProvider(
+            "Name the output image",
+            "AutoEvaluationOverlay",
+            doc="""\
+        Enter the name of the output image with the outlines overlaid. This
+        image can be selected in later modules (for instance, **SaveImages**).
+        """
         )
 
         #
@@ -217,7 +266,7 @@ deviation will be calculated"""
     # Accessing setting members of a group of settings requires looping through the group result list
     #
     def settings(self):
-        result = [self.input_object_name]
+        result = [self.input_object_name, self.image_name, self.line_mode, self.output_image_name]
         for measurement in self.measurements:
             result += [measurement.measurement, measurement.range]
         return result
@@ -227,7 +276,7 @@ deviation will be calculated"""
     # include buttons and dividers which are not added in the settings method
     #
     def visible_settings(self):
-        result = [self.input_object_name]
+        result = [self.input_object_name, self.image_name, self.line_mode, self.output_image_name]
         for measurement in self.measurements:
             result += [measurement.measurement, measurement.range]
             if hasattr(measurement, "remover"):
@@ -251,6 +300,32 @@ deviation will be calculated"""
         # Get the measurements object for the current run
         #
         workspace_measurements = workspace.measurements
+
+        #
+        # Get the image pixels from the image set
+        #
+        base_image, dimensions = self.base_image(workspace)
+
+        #
+        # get the object outlines as pixel data
+        #
+        pixel_data = self.run_color(workspace, base_image.copy())
+
+        #
+        # create new output image with the object outlines
+        #
+        output_image = cellprofiler.image.Image(pixel_data, dimensions=dimensions)
+
+        #
+        # add new image with object outlines to workspace image set
+        #
+        workspace.image_set.add(self.output_image_name.value, output_image)
+        image = workspace.image_set.get_image(self.image_name.value)
+
+        #
+        # set the input image as the parent image of the output image
+        #
+        output_image.parent_image = image
 
         #
         # declare array of deviation values
@@ -314,6 +389,132 @@ deviation will be calculated"""
         # e.g. the Bayesian Module
         #
         workspace.add_measurement(self.input_object_name.value, FEATURE_NAME, dev_array)
+
+        #
+        # if user wants to show the display-window, save data needed for display in workspace.display_data
+        #
+        if self.show_window:
+            workspace.display_data.pixel_data = pixel_data
+
+            workspace.display_data.image_pixel_data = base_image
+
+            workspace.display_data.dimensions = dimensions
+
+    #
+    # if user wants to show the display window during pipeline execution, this method is called by UI thread
+    # display the data saved in display_data of workspace
+    # used a CP defined figure to plot/display data via matplotlib
+    #
+
+    def display(self, workspace, figure):
+        #
+        # show outlined image
+        #
+        dimensions = workspace.display_data.dimensions
+
+        figure.set_subplots((2, 1), dimensions=dimensions)
+
+        figure.subplot_imshow_bw(
+            0,
+            0,
+            workspace.display_data.image_pixel_data,
+            self.image_name.value
+        )
+
+        figure.subplot_imshow(
+            1,
+            0,
+            workspace.display_data.pixel_data,
+            self.output_image_name.value,
+            sharexy=figure.subplot(0, 0)
+        )
+
+    #
+    # helper method;
+    # Gets the image pixels from the image in the workspace
+    #
+    def base_image(self, workspace):
+
+        image = workspace.image_set.get_image(self.image_name.value)
+
+        pixel_data = skimage.img_as_float(image.pixel_data)
+
+        if image.multichannel:
+            return pixel_data, image.dimensions
+
+        return skimage.color.gray2rgb(pixel_data), image.dimensions
+
+    #
+    # helper method;
+    # prepares colors to draw the outlines of the objects selected
+    #
+    def run_color(self, workspace, pixel_data):
+        color = (255, 0, 0)
+
+        objects = workspace.object_set.get_objects(self.input_object_name.value)
+
+        pixel_data = self.draw_outlines(pixel_data, objects, color)
+
+        return pixel_data
+
+    #
+    # helper method;
+    # draws the outlines of the objects selected
+    #
+    def draw_outlines(self, pixel_data, objects, color):
+        for labels, _ in objects.get_labels():
+            resized_labels = self.resize(pixel_data, labels)
+
+            if objects.volumetric:
+                for index, plane in enumerate(resized_labels):
+                    pixel_data[index] = skimage.segmentation.mark_boundaries(
+                        pixel_data[index],
+                        plane,
+                        color=color,
+                        mode=self.line_mode.value.lower()
+                    )
+            else:
+                pixel_data = skimage.segmentation.mark_boundaries(
+                    pixel_data,
+                    resized_labels,
+                    color=color,
+                    mode=self.line_mode.value.lower()
+                )
+
+        return pixel_data
+
+    #
+    # helper method;
+    # resizes the object labels
+    #
+    def resize(self, pixel_data, labels):
+        initial_shape = labels.shape
+
+        final_shape = pixel_data.shape
+
+        if pixel_data.ndim > labels.ndim:
+            final_shape = final_shape[:-1]
+
+        adjust = numpy.subtract(final_shape, initial_shape)
+
+        cropped = skimage.util.crop(
+            labels,
+            [(0, dim_adjust) for dim_adjust in numpy.abs(numpy.minimum(adjust, numpy.zeros_like(adjust)))]
+        )
+
+        return numpy.pad(
+            cropped,
+            [(0, dim_adjust) for dim_adjust in numpy.maximum(adjust, numpy.zeros_like(adjust))],
+            mode="constant",
+            constant_values=(0)
+        )
+
+    #
+    # helper method;
+    # determines 3D
+    #
+    def volumetric(self):
+        return True
 
     ####################################################################
     # Tell CellProfiler about the measurements produced in this module #
