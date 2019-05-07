@@ -3,6 +3,7 @@
 """
 Author: Lisa Laux, MSc Information Technology, University of Glasgow
 Date: August 2018
+Updated: May 2019
 
 License: Please note that the CellProfiler Software was released under the BSD 3-Clause License by
 the Broad Institute: Copyright © 2003 - 2018 Broad Institute, Inc. All rights reserved. Please refer to
@@ -45,6 +46,7 @@ AutomatedEvaluation
 By choosing an object and some of its measurements to be evaluated, the module will check whether these measurements
 are in a tolerance range provided in the settings. If object measurement values are outside this range, a 
 percentaged deviation per value will be measured and saved with the object measurements in a numpy array.
+The module also displays the object's outlines and supporting objects if display output is enabled.
 
 ============ ============ ===============
 Supports 2D? Supports 3D? Respects masks?
@@ -77,8 +79,18 @@ CATEGORY = 'Evaluation'
 DEVIATION = 'Deviation'
 FEATURE_NAME = 'Evaluation_Deviation'
 
-NUM_FIXED_SETTINGS = 4
-NUM_GROUP_SETTINGS = 2
+NUM_FIXED_SETTINGS = 5
+NUM_GROUP1_SETTINGS = 2
+NUM_GROUP2_SETTINGS = 2
+
+COLORS = {"White": (1, 1, 1),
+          "Black": (0, 0, 0),
+          "Red": (1, 0, 0),
+          "Green": (0, 1, 0),
+          "Blue": (0, 0, 1),
+          "Yellow": (1, 1, 0)}
+
+COLOR_ORDER = ["Red", "Green", "Blue", "Yellow", "White", "Black"]
 
 
 #
@@ -108,24 +120,15 @@ class AutomatedEvaluation(cellprofiler.module.Module):
 
         module_explanation = [
             "Module used to automatically evaluate the quality of identified objects (eg nuclei, adhesions). "
-            "Needs to be placed after IdentifyObjects and Measurement modules. Choose the measurements to be evaluated"
-            "and set a tolerance range for their values. If objects are outside this range, a deviation will be "
-            "measured and saved with the object."]
+            "Needs to be placed after IdentifyObjects and Measurement modules. Choose the object which measurements "
+            "shall be evaluated first. You may choose more objects as well that will be outlined and displayed. "
+            "Then choose the measurements to be evaluated and set a tolerance range for their values. If objects are "
+            "outside this range, a deviation will be measured and saved with the object."]
 
         #
         # Notes will appear in the notes-box of the module
         #
         self.set_notes([" ".join(module_explanation)])
-
-        #
-        # Object identified in upstream IndentifyObjects module; accessible via ObjectNameSubscriber
-        #
-        self.input_object_name = cellprofiler.setting.ObjectNameSubscriber(
-            "Input object name",
-            cellprofiler.setting.NONE,
-            doc="""\
-These are the objects that the module operates on."""
-        )
 
         #
         # ImageNameSubscriber provides all available images in the image set
@@ -173,6 +176,51 @@ These are the objects that the module operates on."""
         """
         )
 
+        self.spacer = cellprofiler.setting.Divider(line=False)
+
+        #
+        # The number of outlined objects;
+        # necessary for prepare_settings method
+        #
+        self.count1 = cellprofiler.setting.Integer(
+            'No. of objects to display',
+            1,
+            minval=1,
+            maxval=100,
+            doc="""\
+        No. of outlined objects."""
+        )
+
+        #
+        # The number of measurements for the object (first one in outlines);
+        # necessary for prepare_settings method
+        #
+        self.count2 = cellprofiler.setting.Integer(
+            'No. of measurements to consider for object',
+            1,
+            minval=1,
+            maxval=100,
+            doc="""\
+        No. of measurements."""
+        )
+
+        #
+        # Group of outlines for different object that should be displayed on the image
+        #
+        self.outlines = []
+
+        #
+        # Add first outline which cannot be deleted; there must be at least one
+        #
+        self.add_outline(can_remove=False)
+
+        #
+        # Button for adding additional outlines; calls add_outline helper function
+        #
+        self.add_outline_button = cellprofiler.setting.DoSomething("", "Add another outline", self.add_outline)
+
+        self.divider = cellprofiler.setting.Divider()
+
         #
         # Group of measurements made for the object by a Measurements module
         #
@@ -191,6 +239,53 @@ These are the objects that the module operates on."""
 
     #
     # helper function:
+    # add objects to outline and color chooser
+    # add a remove-button for all outlines except a mandatory one
+    #
+
+    def add_outline(self, can_remove=True):
+        group = cellprofiler.setting.SettingsGroup()
+        if can_remove:
+            group.append("divider", cellprofiler.setting.Divider(line=False))
+
+        #
+        # Object to be outlined which was identified in upstream IndentifyObjects module;
+        # accessible via ObjectNameSubscriber
+        #
+        group.append(
+            "objects_name",
+            cellprofiler.setting.ObjectNameSubscriber(
+                "Select objects to display",
+                cellprofiler.setting.NONE,
+                doc="Choose the objects whose outlines you would like to display. The first object chosen will be the "
+                    "leading object, storing the quality measurement needed for the Bayesian Optimisation."
+            )
+        )
+
+        default_color = (COLOR_ORDER[len(self.outlines)] if len(self.outlines) < len(COLOR_ORDER) else COLOR_ORDER[0])
+
+        #
+        # Color chooser for setting the outline color to display on the image
+        #
+        group.append(
+            "color",
+            cellprofiler.setting.Color(
+                "Select outline color",
+                default_color,
+                doc="Objects will be outlined in this color."
+            )
+        )
+
+        if can_remove:
+            group.append(
+                "remover",
+                cellprofiler.setting.RemoveSettingButton("", "Remove this outline", self.outlines, group)
+            )
+
+        self.outlines.append(group)
+
+    #
+    # helper function:
     # adds measurements grouped with corresponding quality ranges
     # adds a remove-button for all measurements except a mandatory one where can_delete = False
     #
@@ -204,7 +299,7 @@ These are the objects that the module operates on."""
             "measurement",
             cellprofiler.setting.Measurement(
                 "Select the quality measurement",
-                self.input_object_name.get_value,
+                self.outlines[0].objects_name.get_value,
                 "AreaShape_Area",
                 doc="""\
 See the **Measurements** modules help pages for more information
@@ -251,13 +346,41 @@ deviation will be calculated"""
     # Add groups if necessary.
     #
     def prepare_settings(self, setting_values):
-        num_settings = (len(setting_values) - NUM_FIXED_SETTINGS) / NUM_GROUP_SETTINGS
+
+        #
+        # No. of outlines in outlines group
+        #
+        count1 = int(setting_values[3])
+
+        #
+        # No. of measurements in measurement group
+        #
+        count2 = int(setting_values[4])
+
+        #
+        # Handle adding outlines
+        #
+        num_settings_1 = (len(setting_values) - NUM_FIXED_SETTINGS - NUM_GROUP2_SETTINGS*count2) / NUM_GROUP1_SETTINGS
+
+        if len(self.outlines) == 0:
+            self.add_outline(False)
+        elif len(self.outlines) > num_settings_1:
+            del self.outlines[num_settings_1:]
+        else:
+            for i in range(len(self.outlines), num_settings_1):
+                self.add_outline()
+
+        #
+        # Handle adding measurements
+        #
+        num_settings_2 = (len(setting_values) - NUM_FIXED_SETTINGS - NUM_GROUP1_SETTINGS * count1) / NUM_GROUP2_SETTINGS
+
         if len(self.measurements) == 0:
             self.add_measurement(False)
-        elif len(self.measurements) > num_settings:
-            del self.measurements[num_settings:]
+        elif len(self.measurements) > num_settings_2:
+            del self.measurements[num_settings_2:]
         else:
-            for i in range(len(self.measurements), num_settings):
+            for i in range(len(self.measurements), num_settings_2):
                 self.add_measurement()
 
     #  
@@ -266,7 +389,10 @@ deviation will be calculated"""
     # Accessing setting members of a group of settings requires looping through the group result list
     #
     def settings(self):
-        result = [self.input_object_name, self.image_name, self.line_mode, self.output_image_name]
+        result = [self.image_name, self.output_image_name, self.line_mode]
+        result += [self.count1, self.count2]
+        for outline in self.outlines:
+            result += [outline.color, outline.objects_name]
         for measurement in self.measurements:
             result += [measurement.measurement, measurement.range]
         return result
@@ -276,7 +402,16 @@ deviation will be calculated"""
     # include buttons and dividers which are not added in the settings method
     #
     def visible_settings(self):
-        result = [self.input_object_name, self.image_name, self.line_mode, self.output_image_name]
+        result = [self.image_name, self.line_mode, self.spacer]
+        result += [self.count1]
+        for outline in self.outlines:
+            if hasattr(outline, "divider"):
+                result += [outline.divider]
+            result += [outline.objects_name, outline.color]
+            if hasattr(outline, "remover"):
+                result += [outline.remover]
+        result += [self.add_outline_button, self.divider]
+        result += [self.count2]
         for measurement in self.measurements:
             result += [measurement.measurement, measurement.range]
             if hasattr(measurement, "remover"):
@@ -342,8 +477,8 @@ deviation will be calculated"""
             #
             # get_current_measurement returns an array with the measurements per object
             #
-            measurement_values = workspace_measurements.get_current_measurement(self.input_object_name.value_text,
-                                                                                m.measurement.value_text)
+            measurement_values = workspace_measurements.get_current_measurement(
+                self.outlines[0].objects_name.value_text, m.measurement.value_text)
             # print("All measurements:")
             # print(measurement_values)
 
@@ -388,7 +523,7 @@ deviation will be calculated"""
         # Add measurement for deviations to workspace measurements to make it available to downstream modules,
         # e.g. the Bayesian Module
         #
-        workspace.add_measurement(self.input_object_name.value, FEATURE_NAME, dev_array)
+        workspace.add_measurement(self.outlines[0].objects_name.value, FEATURE_NAME, dev_array)
 
         #
         # if user wants to show the display-window, save data needed for display in workspace.display_data
@@ -449,11 +584,12 @@ deviation will be calculated"""
     # prepares colors to draw the outlines of the objects selected
     #
     def run_color(self, workspace, pixel_data):
-        color = (255, 0, 0)
+        for outline in self.outlines:
+            objects = workspace.object_set.get_objects(outline.objects_name.value)
 
-        objects = workspace.object_set.get_objects(self.input_object_name.value)
+            color = tuple(c / 255.0 for c in outline.color.to_rgb())
 
-        pixel_data = self.draw_outlines(pixel_data, objects, color)
+            pixel_data = self.draw_outlines(pixel_data, objects, color)
 
         return pixel_data
 
@@ -525,7 +661,7 @@ deviation will be calculated"""
     #
     def get_measurement_columns(self, pipeline):
 
-        input_object_name = self.input_object_name.value
+        input_object_name = self.outlines[0].objects_name.value
 
         return [input_object_name, FEATURE_NAME, cellprofiler.measurement.COLTYPE_FLOAT]
 
@@ -533,7 +669,7 @@ deviation will be calculated"""
     # Return a list of the measurement categories produced by this module if the object_name matches
     #
     def get_categories(self, pipeline, object_name):
-        if object_name == self.input_object_name:
+        if object_name == self.outlines[0].objects_name:
             return [CATEGORY]
 
         return []
@@ -542,7 +678,7 @@ deviation will be calculated"""
     # Return the feature names if the object_name and category match to the GUI for measurement subscribers
     #
     def get_measurements(self, pipeline, object_name, category):
-        if object_name == self.input_object_name and category == CATEGORY:
+        if object_name == self.outlines[0].objects_name and category == CATEGORY:
             return [DEVIATION]
 
         return []
